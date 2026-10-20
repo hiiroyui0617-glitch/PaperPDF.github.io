@@ -38,6 +38,9 @@ const cropCanvas =
 const cropStatus =
     document.getElementById("cropStatus");
 
+const cropFilterMode =
+    document.getElementById("cropFilterMode");
+
 const autoDetectCropButton =
     document.getElementById("autoDetectCropButton");
 
@@ -116,7 +119,8 @@ imageInput.addEventListener(
                 return {
                     file: file,
                     rotation: 0,
-                    correctedBlob: null
+                    correctedBlob: null,
+                    filterMode: "document"
                 };
             }
         );
@@ -796,6 +800,317 @@ function canvasToJpegBlob(
     );
 }
 
+// =============================================
+// 画像フィルター
+//
+// original  : 元画像
+// grayscale : グレースケール
+// document  : 強い白黒ドキュメント
+// =============================================
+
+async function applyFilterToCanvas(
+    sourceCanvas,
+    mode
+) {
+
+    console.log(
+        "フィルターモード:",
+        mode
+    );
+
+
+    // =========================================
+    // 元画像
+    // =========================================
+
+    if (
+        mode === "original"
+    ) {
+
+        const copyCanvas =
+            document.createElement(
+                "canvas"
+            );
+
+
+        copyCanvas.width =
+            sourceCanvas.width;
+
+        copyCanvas.height =
+            sourceCanvas.height;
+
+
+        const context =
+            copyCanvas.getContext(
+                "2d"
+            );
+
+
+        context.drawImage(
+            sourceCanvas,
+            0,
+            0
+        );
+
+
+        return copyCanvas;
+    }
+
+
+    const cv =
+        await getOpenCv();
+
+
+    let src = null;
+    let gray = null;
+    let background = null;
+    let flat = null;
+    let blurred = null;
+    let binary = null;
+    let display = null;
+
+
+    try {
+
+        src =
+            cv.imread(
+                sourceCanvas
+            );
+
+
+        gray =
+            new cv.Mat();
+
+
+        // =====================================
+        // RGBA → グレースケール
+        // =====================================
+
+        cv.cvtColor(
+            src,
+            gray,
+            cv.COLOR_RGBA2GRAY
+        );
+
+
+        // =====================================
+        // グレースケール
+        // =====================================
+
+        if (
+            mode === "grayscale"
+        ) {
+
+            display =
+                new cv.Mat();
+
+
+            cv.cvtColor(
+                gray,
+                display,
+                cv.COLOR_GRAY2RGBA
+            );
+
+
+            const outputCanvas =
+                document.createElement(
+                    "canvas"
+                );
+
+
+            outputCanvas.width =
+                sourceCanvas.width;
+
+            outputCanvas.height =
+                sourceCanvas.height;
+
+
+            cv.imshow(
+                outputCanvas,
+                display
+            );
+
+
+            return outputCanvas;
+        }
+
+
+        // =====================================
+        // DOCUMENTモード
+        // =====================================
+
+        if (
+            mode === "document"
+        ) {
+
+            background =
+                new cv.Mat();
+
+            flat =
+                new cv.Mat();
+
+            blurred =
+                new cv.Mat();
+
+            binary =
+                new cv.Mat();
+
+            display =
+                new cv.Mat();
+
+
+            // =================================
+            // 1. 背景照明を推定
+            //
+            // かなり大きくぼかし、
+            // 紙の影・照明ムラだけを取得
+            // =================================
+
+            cv.GaussianBlur(
+                gray,
+                background,
+                new cv.Size(
+                    51,
+                    51
+                ),
+                0
+            );
+
+
+            // =================================
+            // 2. 背景を除去
+            //
+            // gray / background
+            //
+            // 紙面の明るさを均一化
+            // =================================
+
+            cv.divide(
+                gray,
+                background,
+                flat,
+                255
+            );
+
+
+            // =================================
+            // 3. 小さなノイズだけ除去
+            // =================================
+
+            cv.GaussianBlur(
+                flat,
+                blurred,
+                new cv.Size(
+                    3,
+                    3
+                ),
+                0
+            );
+
+
+            // =================================
+            // 4. 強い白黒2値化
+            //
+            // 今回は最終的に
+            // 0 または 255 にする
+            // =================================
+
+            cv.adaptiveThreshold(
+                blurred,
+                binary,
+                255,
+                cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv.THRESH_BINARY,
+                41,
+                11
+            );
+
+
+            // =================================
+            // 5. RGBAへ変換
+            // =================================
+
+            cv.cvtColor(
+                binary,
+                display,
+                cv.COLOR_GRAY2RGBA
+            );
+
+
+            // =================================
+            // Canvasへ出力
+            // =================================
+
+            const outputCanvas =
+                document.createElement(
+                    "canvas"
+                );
+
+
+            outputCanvas.width =
+                sourceCanvas.width;
+
+            outputCanvas.height =
+                sourceCanvas.height;
+
+
+            cv.imshow(
+                outputCanvas,
+                display
+            );
+
+
+            // =================================
+            // デバッグ
+            //
+            // documentならここを通る必要がある
+            // =================================
+
+            console.log(
+                "ドキュメント2値化を適用しました"
+            );
+
+
+            return outputCanvas;
+        }
+
+
+        throw new Error(
+            "未知のフィルターモードです: " +
+            mode
+        );
+
+    } finally {
+
+        if (src !== null) {
+            src.delete();
+        }
+
+        if (gray !== null) {
+            gray.delete();
+        }
+
+        if (background !== null) {
+            background.delete();
+        }
+
+        if (flat !== null) {
+            flat.delete();
+        }
+
+        if (blurred !== null) {
+            blurred.delete();
+        }
+
+        if (binary !== null) {
+            binary.delete();
+        }
+
+        if (display !== null) {
+            display.delete();
+        }
+    }
+}
 
 // =============================================
 // PDF用JPEG
@@ -865,6 +1180,8 @@ async function openCropEditor(
                 pages[index]
             );
 
+        cropFilterMode.value =
+            pages[index].filterMode || "document";
 
         // 編集画面は大きすぎないよう縮小表示
         const maxWidth =
@@ -2779,6 +3096,979 @@ function findPaperFromBrightRegion(
 }
 
 // =============================================
+// 数値を範囲内に制限
+// =============================================
+
+function clamp(value, min, max) {
+
+    return Math.max(
+        min,
+        Math.min(
+            max,
+            value
+        )
+    );
+}
+
+
+// =============================================
+// 中央値
+// =============================================
+
+function median(values) {
+
+    if (values.length === 0) {
+
+        return 0;
+    }
+
+
+    const sorted =
+        values.slice().sort(
+            function (a, b) {
+
+                return a - b;
+            }
+        );
+
+
+    const middle =
+        Math.floor(
+            sorted.length / 2
+        );
+
+
+    if (
+        sorted.length % 2 === 0
+    ) {
+
+        return (
+            sorted[middle - 1] +
+            sorted[middle]
+        ) / 2;
+    }
+
+
+    return sorted[middle];
+}
+
+// =============================================
+// Lab画像の小領域平均
+// =============================================
+
+function getLabMean(
+    lab,
+    x,
+    y,
+    radius = 2
+) {
+
+    const centerX =
+        Math.round(x);
+
+    const centerY =
+        Math.round(y);
+
+
+    let sumL = 0;
+    let sumA = 0;
+    let sumB = 0;
+
+    let count = 0;
+
+
+    for (
+        let dy = -radius;
+        dy <= radius;
+        dy++
+    ) {
+
+        const py =
+            centerY + dy;
+
+
+        if (
+            py < 0 ||
+            py >= lab.rows
+        ) {
+
+            continue;
+        }
+
+
+        for (
+            let dx = -radius;
+            dx <= radius;
+            dx++
+        ) {
+
+            const px =
+                centerX + dx;
+
+
+            if (
+                px < 0 ||
+                px >= lab.cols
+            ) {
+
+                continue;
+            }
+
+
+            const index =
+                (
+                    py *
+                    lab.cols +
+                    px
+                ) * 3;
+
+
+            sumL +=
+                lab.data[
+                index
+                ];
+
+
+            sumA +=
+                lab.data[
+                index + 1
+                ];
+
+
+            sumB +=
+                lab.data[
+                index + 2
+                ];
+
+
+            count++;
+        }
+    }
+
+
+    if (
+        count === 0
+    ) {
+
+        return null;
+    }
+
+
+    return {
+
+        l:
+            sumL /
+            count,
+
+        a:
+            sumA /
+            count,
+
+        b:
+            sumB /
+            count
+    };
+}
+
+// =============================================
+// Lab色差
+// =============================================
+
+function labColorDistance(
+    color1,
+    color2
+) {
+
+    if (
+        color1 === null ||
+        color2 === null
+    ) {
+
+        return 0;
+    }
+
+
+    const dL =
+        color1.l -
+        color2.l;
+
+
+    const dA =
+        color1.a -
+        color2.a;
+
+
+    const dB =
+        color1.b -
+        color2.b;
+
+
+    // 明度を少し重視
+    return Math.sqrt(
+        dL * dL +
+        0.6 * dA * dA +
+        0.6 * dB * dB
+    );
+}
+
+// =============================================
+// エッジ強度取得
+// =============================================
+
+function getEdgeStrength(
+    edgeMat,
+    x,
+    y,
+    radius = 2
+) {
+
+    const centerX =
+        Math.round(x);
+
+    const centerY =
+        Math.round(y);
+
+
+    let maxValue = 0;
+
+
+    for (
+        let dy = -radius;
+        dy <= radius;
+        dy++
+    ) {
+
+        const py =
+            centerY + dy;
+
+
+        if (
+            py < 0 ||
+            py >= edgeMat.rows
+        ) {
+
+            continue;
+        }
+
+
+        for (
+            let dx = -radius;
+            dx <= radius;
+            dx++
+        ) {
+
+            const px =
+                centerX + dx;
+
+
+            if (
+                px < 0 ||
+                px >= edgeMat.cols
+            ) {
+
+                continue;
+            }
+
+
+            const value =
+                edgeMat.data[
+                py *
+                edgeMat.cols +
+                px
+                ];
+
+
+            if (
+                value >
+                maxValue
+            ) {
+
+                maxValue =
+                    value;
+            }
+        }
+    }
+
+
+    return maxValue;
+}
+
+// =============================================
+// 1本の紙端を
+// Lab色差＋エッジで精密化
+// =============================================
+
+function refinePaperEdge(
+    lab,
+    edgeMat,
+    point1,
+    point2,
+    searchRadius
+) {
+
+    const dx =
+        point2.x -
+        point1.x;
+
+
+    const dy =
+        point2.y -
+        point1.y;
+
+
+    const length =
+        Math.sqrt(
+            dx * dx +
+            dy * dy
+        );
+
+
+    if (
+        length < 10
+    ) {
+
+        return {
+            p1: point1,
+            p2: point2,
+            offset: 0
+        };
+    }
+
+
+    // 辺方向の単位ベクトル
+    const tx =
+        dx /
+        length;
+
+
+    const ty =
+        dy /
+        length;
+
+
+    // 辺に垂直な方向
+    const nx =
+        -ty;
+
+
+    const ny =
+        tx;
+
+
+    // 紙側・背景側の色を取る距離
+    const sampleGap =
+        Math.max(
+            4,
+            Math.min(
+                10,
+                Math.round(
+                    length *
+                    0.01
+                )
+            )
+        );
+
+
+    const numberOfSamples =
+        30;
+
+
+    let bestOffset =
+        0;
+
+    let bestScore =
+        -Infinity;
+
+
+    // =========================================
+    // 辺を法線方向に少しずつずらして調査
+    // =========================================
+
+    for (
+        let offset = -searchRadius;
+        offset <= searchRadius;
+        offset++
+    ) {
+
+        const colorScores =
+            [];
+
+        const edgeScores =
+            [];
+
+
+        // =====================================
+        // 辺上の多数の点で調査
+        //
+        // 両端10%は角丸・影の影響があるので除外
+        // =====================================
+
+        for (
+            let i = 0;
+            i < numberOfSamples;
+            i++
+        ) {
+
+            const ratio =
+                0.10 +
+                0.80 *
+                (
+                    i /
+                    (
+                        numberOfSamples -
+                        1
+                    )
+                );
+
+
+            const baseX =
+                point1.x +
+                dx *
+                ratio +
+                nx *
+                offset;
+
+
+            const baseY =
+                point1.y +
+                dy *
+                ratio +
+                ny *
+                offset;
+
+
+            // 境界の片側
+            const colorA =
+                getLabMean(
+                    lab,
+                    baseX +
+                    nx *
+                    sampleGap,
+                    baseY +
+                    ny *
+                    sampleGap,
+                    2
+                );
+
+
+            // 境界の反対側
+            const colorB =
+                getLabMean(
+                    lab,
+                    baseX -
+                    nx *
+                    sampleGap,
+                    baseY -
+                    ny *
+                    sampleGap,
+                    2
+                );
+
+
+            const colorDifference =
+                labColorDistance(
+                    colorA,
+                    colorB
+                );
+
+
+            colorScores.push(
+                colorDifference
+            );
+
+
+            const edgeStrength =
+                getEdgeStrength(
+                    edgeMat,
+                    baseX,
+                    baseY,
+                    2
+                );
+
+
+            edgeScores.push(
+                edgeStrength /
+                255
+            );
+        }
+
+
+        // =====================================
+        // 中央値を使う
+        //
+        // 文字やパンチ穴などの局所的なノイズを
+        // 受けにくくする
+        // =====================================
+
+        const colorScore =
+            median(
+                colorScores
+            );
+
+
+        const edgeScore =
+            median(
+                edgeScores
+            );
+
+
+        // =====================================
+        // 総合評価
+        //
+        // 色差を主体にし、
+        // Cannyを補助として使用
+        // =====================================
+
+        let score =
+            colorScore
+            +
+            edgeScore *
+            25;
+
+
+        // =====================================
+        // 粗検出位置から遠く離れるほど
+        // わずかに減点
+        //
+        // 全然違う境界へ飛ぶことを防ぐ
+        // =====================================
+
+        score -=
+            Math.abs(
+                offset
+            ) * 0.08;
+
+
+        if (
+            score >
+            bestScore
+        ) {
+
+            bestScore =
+                score;
+
+            bestOffset =
+                offset;
+        }
+    }
+
+
+    return {
+
+        p1: {
+            x:
+                point1.x +
+                nx *
+                bestOffset,
+
+            y:
+                point1.y +
+                ny *
+                bestOffset
+        },
+
+        p2: {
+            x:
+                point2.x +
+                nx *
+                bestOffset,
+
+            y:
+                point2.y +
+                ny *
+                bestOffset
+        },
+
+        offset:
+            bestOffset,
+
+        score:
+            bestScore
+    };
+}
+
+// =============================================
+// 2直線の交点
+// =============================================
+
+function getLineIntersection(
+    line1,
+    line2
+) {
+
+    const x1 =
+        line1.p1.x;
+
+    const y1 =
+        line1.p1.y;
+
+
+    const x2 =
+        line1.p2.x;
+
+    const y2 =
+        line1.p2.y;
+
+
+    const x3 =
+        line2.p1.x;
+
+    const y3 =
+        line2.p1.y;
+
+
+    const x4 =
+        line2.p2.x;
+
+    const y4 =
+        line2.p2.y;
+
+
+    const denominator =
+        (
+            x1 - x2
+        ) *
+        (
+            y3 - y4
+        )
+        -
+        (
+            y1 - y2
+        ) *
+        (
+            x3 - x4
+        );
+
+
+    if (
+        Math.abs(
+            denominator
+        ) <
+        0.0001
+    ) {
+
+        return null;
+    }
+
+
+    const a =
+        x1 * y2 -
+        y1 * x2;
+
+
+    const b =
+        x3 * y4 -
+        y3 * x4;
+
+
+    const x =
+        (
+            a *
+            (
+                x3 - x4
+            )
+            -
+            (
+                x1 - x2
+            ) *
+            b
+        )
+        /
+        denominator;
+
+
+    const y =
+        (
+            a *
+            (
+                y3 - y4
+            )
+            -
+            (
+                y1 - y2
+            ) *
+            b
+        )
+        /
+        denominator;
+
+
+    return {
+        x: x,
+        y: y
+    };
+}
+
+// =============================================
+// 四角形全体を
+// 色差＋エッジで精密化
+// =============================================
+
+function refineQuadrilateral(
+    cv,
+    src,
+    gray,
+    roughPoints
+) {
+
+    let rgb = null;
+    let lab = null;
+    let edges = null;
+
+
+    try {
+
+        rgb =
+            new cv.Mat();
+
+
+        lab =
+            new cv.Mat();
+
+
+        edges =
+            new cv.Mat();
+
+
+        // =====================================
+        // RGBA → RGB → Lab
+        // =====================================
+
+        cv.cvtColor(
+            src,
+            rgb,
+            cv.COLOR_RGBA2RGB
+        );
+
+
+        cv.cvtColor(
+            rgb,
+            lab,
+            cv.COLOR_RGB2Lab
+        );
+
+
+        // =====================================
+        // 精密化用Canny
+        //
+        // dilateしていない元の細いエッジを使う
+        // =====================================
+
+        cv.Canny(
+            gray,
+            edges,
+            25,
+            80
+        );
+
+
+        // =====================================
+        // 探索距離
+        // =====================================
+
+        const searchRadius =
+            Math.round(
+                clamp(
+                    Math.min(
+                        src.cols,
+                        src.rows
+                    ) *
+                    0.035,
+                    12,
+                    45
+                )
+            );
+
+
+        // roughPoints は
+        //
+        // 0 左上
+        // 1 右上
+        // 2 右下
+        // 3 左下
+        // =====================================
+
+
+        const top =
+            refinePaperEdge(
+                lab,
+                edges,
+                roughPoints[0],
+                roughPoints[1],
+                searchRadius
+            );
+
+
+        const right =
+            refinePaperEdge(
+                lab,
+                edges,
+                roughPoints[1],
+                roughPoints[2],
+                searchRadius
+            );
+
+
+        const bottom =
+            refinePaperEdge(
+                lab,
+                edges,
+                roughPoints[2],
+                roughPoints[3],
+                searchRadius
+            );
+
+
+        const left =
+            refinePaperEdge(
+                lab,
+                edges,
+                roughPoints[3],
+                roughPoints[0],
+                searchRadius
+            );
+
+
+        console.log(
+            "辺補正量:",
+            {
+                top:
+                    top.offset,
+
+                right:
+                    right.offset,
+
+                bottom:
+                    bottom.offset,
+
+                left:
+                    left.offset
+            }
+        );
+
+
+        // =====================================
+        // 4本の直線の交点
+        // =====================================
+
+        const topLeft =
+            getLineIntersection(
+                top,
+                left
+            );
+
+
+        const topRight =
+            getLineIntersection(
+                top,
+                right
+            );
+
+
+        const bottomRight =
+            getLineIntersection(
+                bottom,
+                right
+            );
+
+
+        const bottomLeft =
+            getLineIntersection(
+                bottom,
+                left
+            );
+
+
+        if (
+            topLeft === null ||
+            topRight === null ||
+            bottomRight === null ||
+            bottomLeft === null
+        ) {
+
+            return roughPoints;
+        }
+
+
+        let refined =
+            [
+                topLeft,
+                topRight,
+                bottomRight,
+                bottomLeft
+            ];
+
+
+        // =====================================
+        // 極端に画像外へ飛ばないよう制限
+        // =====================================
+
+        refined =
+            refined.map(
+                function (point) {
+
+                    return {
+
+                        x:
+                            clamp(
+                                point.x,
+                                0,
+                                src.cols - 1
+                            ),
+
+                        y:
+                            clamp(
+                                point.y,
+                                0,
+                                src.rows - 1
+                            )
+                    };
+                }
+            );
+
+
+        return refined;
+
+    } catch (error) {
+
+        console.warn(
+            "色差による四隅精密化に失敗:",
+            error
+        );
+
+
+        // 精密化が失敗しても
+        // これまでの粗検出結果を使える
+        return roughPoints;
+
+    } finally {
+
+        if (
+            rgb !== null
+        ) {
+
+            rgb.delete();
+        }
+
+
+        if (
+            lab !== null
+        ) {
+
+            lab.delete();
+        }
+
+
+        if (
+            edges !== null
+        ) {
+
+            edges.delete();
+        }
+    }
+}
+
+// =============================================
 // 標準的なドキュメントスキャナ方式
 //
 // Gray
@@ -3432,6 +4722,25 @@ async function autoDetectPaperCorners() {
             imageArea
         );
 
+        // =====================================
+        // Lab色差＋Cannyによって
+        // 四辺位置を精密化
+        // =====================================
+
+        bestPoints =
+            refineQuadrilateral(
+                cv,
+                src,
+                gray,
+                bestPoints
+            );
+
+
+        console.log(
+            "色差補正後:",
+            bestPoints
+        );
+
 
         // =====================================
         // 検出Canvas座標
@@ -3984,9 +5293,9 @@ applyCropButton.addEventListener(
             );
 
 
-            // =========================
-            // 補正画像Canvas
-            // =========================
+            // =========================================
+            // 射影変換結果
+            // =========================================
 
             const outputCanvas =
                 document.createElement(
@@ -4007,14 +5316,43 @@ applyCropButton.addEventListener(
             );
 
 
-            // =========================
-            // JPEGとして保存
-            // =========================
+            // =========================================
+            // 選択フィルターを取得
+            // =========================================
+
+            const selectedFilterMode =
+                cropFilterMode.value;
+
+
+            console.log(
+                "選択されたフィルター:",
+                selectedFilterMode
+            );
+
+
+            // =========================================
+            // フィルター適用
+            // =========================================
+
+            const filteredCanvas =
+                await applyFilterToCanvas(
+                    outputCanvas,
+                    selectedFilterMode
+                );
+
+
+            // =========================================
+            // ★重要
+            //
+            // 保存するのは
+            // outputCanvas ではなく
+            // filteredCanvas
+            // =========================================
 
             const correctedBlob =
                 await canvasToJpegBlob(
-                    outputCanvas,
-                    0.92
+                    filteredCanvas,
+                    0.95
                 );
 
 
@@ -4024,8 +5362,12 @@ applyCropButton.addEventListener(
                 correctedBlob;
 
 
-            // 現在の回転状態も
-            // 補正画像に焼き込まれたため0に戻す
+            pages[
+                cropEditingIndex
+            ].filterMode =
+                selectedFilterMode;
+
+
             pages[
                 cropEditingIndex
             ].rotation =
@@ -4034,9 +5376,7 @@ applyCropButton.addEventListener(
 
             invalidateGeneratedPdf();
 
-
             closeCropEditor();
-
 
             showPreviews();
 
