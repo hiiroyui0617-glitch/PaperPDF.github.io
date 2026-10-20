@@ -14,28 +14,40 @@ body {
     color: #222;
 }
 
-
 /* =========================
-   ヘッダー
+   RectiScan ロゴ
    ========================= */
 
-header {
-    text-align: center;
-    padding: 24px 16px;
-    background-color: white;
-    border-bottom: 1px solid #ddd;
+.app-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 20px;
 }
 
-    header h1 {
-        margin: 0;
-        font-size: 30px;
-    }
+.app-logo {
+    width: 220px;
+    max-width: 80%;
+    height: auto;
+    display: block;
+}
 
-    header p {
-        margin-top: 8px;
-        margin-bottom: 0;
-        color: #666;
-    }
+/* =========================
+   RectiScan ヘッダー
+   ========================= */
+
+.app-header {
+    width: 100%;
+    margin-bottom: 24px;
+}
+
+.app-header-image {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 0 0 20px 20px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
 
 
 /* =========================
@@ -558,6 +570,17 @@ body.modal-open {
 
     .crop-actions {
         grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 600px) {
+
+    .app-header {
+        margin-bottom: 18px;
+    }
+
+    .app-header-image {
+        border-radius: 0 0 16px 16px;
     }
 }
 
