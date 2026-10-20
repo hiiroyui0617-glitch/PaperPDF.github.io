@@ -136,7 +136,8 @@ function createPageData(
 // =============================================
 // 写真ライブラリから選択
 //
-// 選択した写真でページ一覧を作り直す
+// 既存ページを残したまま
+// 新しく選んだ写真を末尾へ追加
 // =============================================
 
 imageInput.addEventListener(
@@ -149,16 +150,21 @@ imageInput.addEventListener(
         ) {
             return;
         }
-        pages =
-            files.map(
-                function (file) {
-                    return createPageData(file);
-                }
-            );
+
+        files.forEach(
+            function (file) {
+                pages.push(
+                    createPageData(file)
+                );
+            }
+        );
+        // PDFは作り直しが必要
         invalidateGeneratedPdf();
+
+        // プレビュー更新
         showPreviews();
 
-        // 同じ画像をもう一度選択可能にする
+        // 同じ写真を再度選択できるようにする
         imageInput.value = "";
     }
 );
