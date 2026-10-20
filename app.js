@@ -1502,87 +1502,94 @@ function isValidQuadrilateral(
 //
 // 左上 → 右上 → 右下 → 左下
 //
-// の順番に並べる
+// に並び替える
 // =============================================
 
 function orderFourPoints(points) {
 
-    const center = {
-        x:
-            points.reduce(
-                (sum, p) => sum + p.x,
-                0
-            ) / 4,
+    if (points.length !== 4) {
 
-        y:
-            points.reduce(
-                (sum, p) => sum + p.y,
-                0
-            ) / 4
-    };
-
-
-    // 中心の周囲に時計回りに並べる
-    const sorted =
-        points.slice().sort(
-            function (a, b) {
-
-                const angleA =
-                    Math.atan2(
-                        a.y - center.y,
-                        a.x - center.x
-                    );
-
-                const angleB =
-                    Math.atan2(
-                        b.y - center.y,
-                        b.x - center.x
-                    );
-
-
-                return angleA - angleB;
-            }
+        throw new Error(
+            "四隅の点数が4ではありません。"
         );
+    }
 
 
-    // 左上を探す
-    let topLeftIndex = 0;
-    let smallestSum = Infinity;
+    let topLeft = null;
+    let topRight = null;
+    let bottomRight = null;
+    let bottomLeft = null;
 
 
-    sorted.forEach(
-        function (point, index) {
+    let minSum = Infinity;
+    let maxSum = -Infinity;
 
+    let minDiff = Infinity;
+    let maxDiff = -Infinity;
+
+
+    points.forEach(
+        function (point) {
+
+            // x + y
             const sum =
-                point.x + point.y;
+                point.x +
+                point.y;
 
 
-            if (sum < smallestSum) {
+            // x - y
+            const diff =
+                point.x -
+                point.y;
 
-                smallestSum = sum;
-                topLeftIndex = index;
+
+            // 左上
+            if (sum < minSum) {
+
+                minSum = sum;
+
+                topLeft =
+                    point;
+            }
+
+
+            // 右下
+            if (sum > maxSum) {
+
+                maxSum = sum;
+
+                bottomRight =
+                    point;
+            }
+
+
+            // 左下
+            if (diff < minDiff) {
+
+                minDiff = diff;
+
+                bottomLeft =
+                    point;
+            }
+
+
+            // 右上
+            if (diff > maxDiff) {
+
+                maxDiff = diff;
+
+                topRight =
+                    point;
             }
         }
     );
 
 
-    // 左上から始める
     return [
-        sorted[
-        topLeftIndex
-        ],
-
-        sorted[
-        (topLeftIndex + 1) % 4
-        ],
-
-        sorted[
-        (topLeftIndex + 2) % 4
-        ],
-
-        sorted[
-        (topLeftIndex + 3) % 4
-        ]
+        topLeft,
+        topRight,
+        bottomRight,
+        bottomLeft
     ];
 }
 
@@ -1911,13 +1918,14 @@ function findBestQuadrilateral(
 
                 const epsilonRates =
                     [
-                        0.01,
                         0.015,
-                        0.02,
+                        0.020,
                         0.025,
-                        0.03,
-                        0.04,
-                        0.05
+                        0.030,
+                        0.040,
+                        0.050,
+                        0.060,
+                        0.080
                     ];
 
 
@@ -2771,16 +2779,26 @@ function findPaperFromBrightRegion(
 }
 
 // =============================================
-// 紙の四隅を自動検出
+// 標準的なドキュメントスキャナ方式
 //
-// 白い紙領域を直接抽出する方式
+// Gray
+// ↓
+// Gaussian Blur
+// ↓
+// Canny
+// ↓
+// Morphological Close
+// ↓
+// findContours
+// ↓
+// approxPolyDP
+// ↓
+// 最大の4角形
 // =============================================
 
 async function autoDetectPaperCorners() {
 
-    if (
-        cropSourceCanvas === null
-    ) {
+    if (cropSourceCanvas === null) {
 
         return false;
     }
@@ -2791,13 +2809,11 @@ async function autoDetectPaperCorners() {
 
 
     // =========================================
-    // 検出用画像を縮小
+    // 検出用画像
     // =========================================
 
     const detectionCanvas =
-        document.createElement(
-            "canvas"
-        );
+        document.createElement("canvas");
 
 
     const originalWidth =
@@ -2807,8 +2823,10 @@ async function autoDetectPaperCorners() {
         cropSourceCanvas.height;
 
 
+    // 少し解像度を上げる
+    // 紙の細い境界を残しやすくする
     const maxDetectionSize =
-        1400;
+        1600;
 
 
     const scale =
@@ -2858,31 +2876,17 @@ async function autoDetectPaperCorners() {
 
 
     // =========================================
-    // OpenCV Mat
+    // OpenCV変数
     // =========================================
 
     let src = null;
-
     let gray = null;
-
     let blurred = null;
 
-    let mask = null;
-
-    let closed = null;
-
-    let cleaned = null;
-
-    let closeKernel = null;
-
-    let openKernel = null;
+    let kernel = null;
 
 
     try {
-
-        // =====================================
-        // Canvas → OpenCV
-        // =====================================
 
         src =
             cv.imread(
@@ -2898,20 +2902,8 @@ async function autoDetectPaperCorners() {
             new cv.Mat();
 
 
-        mask =
-            new cv.Mat();
-
-
-        closed =
-            new cv.Mat();
-
-
-        cleaned =
-            new cv.Mat();
-
-
         // =====================================
-        // グレースケール
+        // ① グレースケール
         // =====================================
 
         cv.cvtColor(
@@ -2922,7 +2914,7 @@ async function autoDetectPaperCorners() {
 
 
         // =====================================
-        // 小さなノイズ除去
+        // ② Gaussian Blur
         // =====================================
 
         cv.GaussianBlur(
@@ -2937,153 +2929,490 @@ async function autoDetectPaperCorners() {
 
 
         // =====================================
-        // 紙と机の明るさを自動分析
+        // Cannyの条件
+        //
+        // 低め → 標準 → 高め
+        // の3種類を試す
         // =====================================
 
-        const paperThreshold =
-            estimatePaperThreshold(
-                blurred
+        const cannySettings =
+            [
+                {
+                    low: 10,
+                    high: 30
+                },
+
+                {
+                    low: 20,
+                    high: 60
+                },
+
+                {
+                    low: 30,
+                    high: 100
+                },
+
+                {
+                    low: 50,
+                    high: 150
+                }
+            ];
+
+
+        // =====================================
+        // approxPolyDPの近似率
+        // =====================================
+
+        const epsilonRates =
+            [
+                0.015,
+                0.020,
+                0.025,
+                0.030,
+                0.040,
+                0.050
+            ];
+
+
+        // =====================================
+        // 切れたエッジをつなぐカーネル
+        // =====================================
+
+        kernel =
+            cv.getStructuringElement(
+                cv.MORPH_RECT,
+                new cv.Size(
+                    5,
+                    5
+                )
             );
 
 
+        const imageArea =
+            detectionCanvas.width *
+            detectionCanvas.height;
+
+
+        let bestPoints =
+            null;
+
+
+        let bestArea =
+            0;
+
+
         // =====================================
-        // 白い部分を抽出
+        // Canny条件を順番に試す
         // =====================================
 
-        cv.threshold(
-            blurred,
-            mask,
-            paperThreshold,
-            255,
-            cv.THRESH_BINARY
-        );
-
-
-        // =====================================
-        // 穴・文字・紙の影による細かい欠損を
-        // ある程度つなげる
-        // =====================================
-
-        let closeSize =
-            Math.round(
-                Math.min(
-                    detectionCanvas.width,
-                    detectionCanvas.height
-                ) *
-                0.014
-            );
-
-
-        // 奇数にする
-        if (
-            closeSize % 2 === 0
+        for (
+            const cannySetting
+            of cannySettings
         ) {
 
-            closeSize++;
+            let edged = null;
+            let connected = null;
+            let contours = null;
+            let hierarchy = null;
+
+
+            try {
+
+                edged =
+                    new cv.Mat();
+
+
+                connected =
+                    new cv.Mat();
+
+
+                // =============================
+                // ③ Canny
+                // =============================
+
+                cv.Canny(
+                    blurred,
+                    edged,
+                    cannySetting.low,
+                    cannySetting.high
+                );
+
+
+                // =================================
+                // 紙の辺が途中で切れているため、
+                // Cannyエッジを少し太らせて接続する
+                // =================================
+
+                cv.dilate(
+                    edged,
+                    connected,
+                    kernel,
+                    new cv.Point(
+                        -1,
+                        -1
+                    ),
+                    5
+                );
+
+
+                // =============================
+                // ⑤ 輪郭検出
+                // =============================
+
+                contours =
+                    new cv.MatVector();
+
+
+                hierarchy =
+                    new cv.Mat();
+
+
+                cv.findContours(
+                    connected,
+                    contours,
+                    hierarchy,
+                    cv.RETR_LIST,
+                    cv.CHAIN_APPROX_SIMPLE
+                );
+
+
+                // =============================
+                // 輪郭を面積順に並べる
+                // =============================
+
+                const contourInfo =
+                    [];
+
+
+                for (
+                    let i = 0;
+                    i < contours.size();
+                    i++
+                ) {
+
+                    const contour =
+                        contours.get(i);
+
+
+                    const area =
+                        Math.abs(
+                            cv.contourArea(
+                                contour
+                            )
+                        );
+
+
+                    contourInfo.push(
+                        {
+                            index: i,
+                            area: area
+                        }
+                    );
+
+
+                    contour.delete();
+                }
+
+
+                contourInfo.sort(
+                    function (a, b) {
+
+                        return (
+                            b.area -
+                            a.area
+                        );
+                    }
+                );
+
+
+                // =============================
+                // 大きい輪郭から最大30個確認
+                // =============================
+
+                const checkCount =
+                    Math.min(
+                        30,
+                        contourInfo.length
+                    );
+
+
+                for (
+                    let i = 0;
+                    i < checkCount;
+                    i++
+                ) {
+
+                    const info =
+                        contourInfo[i];
+
+
+                    // 写真の5%未満は無視
+                    if (
+                        info.area <
+                        imageArea *
+                        0.05
+                    ) {
+
+                        continue;
+                    }
+
+
+                    // ほぼ画像全体なら除外
+                    if (
+                        info.area >
+                        imageArea *
+                        0.98
+                    ) {
+
+                        continue;
+                    }
+
+
+                    const contour =
+                        contours.get(
+                            info.index
+                        );
+
+
+                    try {
+
+                        const perimeter =
+                            cv.arcLength(
+                                contour,
+                                true
+                            );
+
+
+                        // =====================
+                        // 近似率を複数試す
+                        // =====================
+
+                        for (
+                            const epsilonRate
+                            of epsilonRates
+                        ) {
+
+                            const approx =
+                                new cv.Mat();
+
+
+                            try {
+
+                                cv.approxPolyDP(
+                                    contour,
+                                    approx,
+                                    epsilonRate *
+                                    perimeter,
+                                    true
+                                );
+
+
+                                if (
+                                    approx.rows !== 4
+                                ) {
+
+                                    continue;
+                                }
+
+
+                                // 凸四角形のみ
+                                if (
+                                    typeof cv.isContourConvex ===
+                                    "function"
+                                ) {
+
+                                    if (
+                                        !cv.isContourConvex(
+                                            approx
+                                        )
+                                    ) {
+
+                                        continue;
+                                    }
+                                }
+
+
+                                // =================
+                                // 4頂点を取得
+                                // =================
+
+                                const data =
+                                    approx.data32S;
+
+
+                                const points =
+                                    [];
+
+
+                                for (
+                                    let p = 0;
+                                    p < 4;
+                                    p++
+                                ) {
+
+                                    points.push(
+                                        {
+                                            x:
+                                                data[
+                                                p * 2
+                                                ],
+
+                                            y:
+                                                data[
+                                                p * 2 +
+                                                1
+                                                ]
+                                        }
+                                    );
+                                }
+
+
+                                const orderedPoints =
+                                    orderFourPoints(
+                                        points
+                                    );
+
+
+                                // =================
+                                // 四角形面積
+                                // =================
+
+                                let quadArea =
+                                    0;
+
+
+                                for (
+                                    let p = 0;
+                                    p < 4;
+                                    p++
+                                ) {
+
+                                    const q =
+                                        (
+                                            p + 1
+                                        ) % 4;
+
+
+                                    quadArea +=
+                                        orderedPoints[p].x *
+                                        orderedPoints[q].y;
+
+
+                                    quadArea -=
+                                        orderedPoints[q].x *
+                                        orderedPoints[p].y;
+                                }
+
+
+                                quadArea =
+                                    Math.abs(
+                                        quadArea /
+                                        2
+                                    );
+
+
+                                // 小さすぎるものは除外
+                                if (
+                                    quadArea <
+                                    imageArea *
+                                    0.05
+                                ) {
+
+                                    continue;
+                                }
+
+
+                                // =================
+                                // 今までで最大なら採用
+                                // =================
+
+                                if (
+                                    quadArea >
+                                    bestArea
+                                ) {
+
+                                    bestArea =
+                                        quadArea;
+
+
+                                    bestPoints =
+                                        orderedPoints.map(
+                                            function (point) {
+
+                                                return {
+                                                    x:
+                                                        point.x,
+
+                                                    y:
+                                                        point.y
+                                                };
+                                            }
+                                        );
+                                }
+
+
+                                // この輪郭では4点が
+                                // 見つかったので終了
+                                break;
+
+                            } finally {
+
+                                approx.delete();
+                            }
+                        }
+
+                    } finally {
+
+                        contour.delete();
+                    }
+                }
+
+            } finally {
+
+                if (
+                    edged !== null
+                ) {
+
+                    edged.delete();
+                }
+
+
+                if (
+                    connected !== null
+                ) {
+
+                    connected.delete();
+                }
+
+
+                if (
+                    contours !== null
+                ) {
+
+                    contours.delete();
+                }
+
+
+                if (
+                    hierarchy !== null
+                ) {
+
+                    hierarchy.delete();
+                }
+            }
         }
 
 
-        closeSize =
-            Math.max(
-                9,
-                Math.min(
-                    closeSize,
-                    25
-                )
-            );
-
-
-        closeKernel =
-            cv.getStructuringElement(
-                cv.MORPH_ELLIPSE,
-                new cv.Size(
-                    closeSize,
-                    closeSize
-                )
-            );
-
-
-        cv.morphologyEx(
-            mask,
-            closed,
-            cv.MORPH_CLOSE,
-            closeKernel,
-            new cv.Point(
-                -1,
-                -1
-            ),
-            2
-        );
-
-
         // =====================================
-        // 細かいゴミを消す
+        // 4角形が見つからなかった
         // =====================================
-
-        let openSize =
-            Math.round(
-                closeSize *
-                0.6
-            );
-
 
         if (
-            openSize % 2 === 0
-        ) {
-
-            openSize++;
-        }
-
-
-        openSize =
-            Math.max(
-                5,
-                openSize
-            );
-
-
-        openKernel =
-            cv.getStructuringElement(
-                cv.MORPH_ELLIPSE,
-                new cv.Size(
-                    openSize,
-                    openSize
-                )
-            );
-
-
-        cv.morphologyEx(
-            closed,
-            cleaned,
-            cv.MORPH_OPEN,
-            openKernel,
-            new cv.Point(
-                -1,
-                -1
-            ),
-            1
-        );
-
-
-        // =====================================
-        // 白い領域から紙を探索
-        // =====================================
-
-        const detectedPoints =
-            findPaperFromBrightRegion(
-                cv,
-                cleaned,
-                detectionCanvas.width,
-                detectionCanvas.height
-            );
-
-
-        if (
-            detectedPoints === null
+            bestPoints === null
         ) {
 
             console.log(
-                "白い紙領域を検出できませんでした。"
+                "4頂点の紙候補が見つかりませんでした。"
             );
 
 
@@ -3091,10 +3420,23 @@ async function autoDetectPaperCorners() {
         }
 
 
+        console.log(
+            "検出した紙:",
+            bestPoints
+        );
+
+
+        console.log(
+            "紙候補面積率:",
+            bestArea /
+            imageArea
+        );
+
+
         // =====================================
-        // 検出Canvas
+        // 検出Canvas座標
         // ↓
-        // 編集Canvas
+        // 編集Canvas座標
         // =====================================
 
         const scaleX =
@@ -3108,7 +3450,7 @@ async function autoDetectPaperCorners() {
 
 
         cropPoints =
-            detectedPoints.map(
+            bestPoints.map(
                 function (point) {
 
                     return {
@@ -3125,12 +3467,6 @@ async function autoDetectPaperCorners() {
             );
 
 
-        console.log(
-            "検出した紙の四隅:",
-            cropPoints
-        );
-
-
         drawCropEditor();
 
 
@@ -3138,55 +3474,35 @@ async function autoDetectPaperCorners() {
 
     } finally {
 
-        if (src !== null) {
+        if (
+            src !== null
+        ) {
 
             src.delete();
         }
 
 
-        if (gray !== null) {
+        if (
+            gray !== null
+        ) {
 
             gray.delete();
         }
 
 
-        if (blurred !== null) {
+        if (
+            blurred !== null
+        ) {
 
             blurred.delete();
         }
 
 
-        if (mask !== null) {
-
-            mask.delete();
-        }
-
-
-        if (closed !== null) {
-
-            closed.delete();
-        }
-
-
-        if (cleaned !== null) {
-
-            cleaned.delete();
-        }
-
-
         if (
-            closeKernel !== null
+            kernel !== null
         ) {
 
-            closeKernel.delete();
-        }
-
-
-        if (
-            openKernel !== null
-        ) {
-
-            openKernel.delete();
+            kernel.delete();
         }
     }
 }
