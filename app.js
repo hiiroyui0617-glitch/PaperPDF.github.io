@@ -1,0 +1,4095 @@
+// =============================================
+// HTML要素
+// =============================================
+
+const imageInput =
+    document.getElementById("imageInput");
+
+const previewContainer =
+    document.getElementById("previewContainer");
+
+const imageCount =
+    document.getElementById("imageCount");
+
+const createPdfButton =
+    document.getElementById("createPdfButton");
+
+const pdfResultSection =
+    document.getElementById("pdfResultSection");
+
+const pdfPreview =
+    document.getElementById("pdfPreview");
+
+const savePdfButton =
+    document.getElementById("savePdfButton");
+
+const fileNameInput =
+    document.getElementById("fileName");
+
+
+// 四隅補正関係
+
+const cropModal =
+    document.getElementById("cropModal");
+
+const cropCanvas =
+    document.getElementById("cropCanvas");
+
+const cropStatus =
+    document.getElementById("cropStatus");
+
+const autoDetectCropButton =
+    document.getElementById("autoDetectCropButton");
+
+const resetCropButton =
+    document.getElementById("resetCropButton");
+
+const cancelCropButton =
+    document.getElementById("cancelCropButton");
+
+const applyCropButton =
+    document.getElementById("applyCropButton");
+
+
+// =============================================
+// ページ情報
+// =============================================
+//
+// {
+//     file: 元画像,
+//     rotation: 回転角度,
+//     correctedBlob: 補正後画像
+// }
+//
+
+let pages = [];
+
+
+// =============================================
+// PDF関係
+// =============================================
+
+let generatedPdfBlob = null;
+
+let pdfBlobUrl = null;
+
+
+// =============================================
+// 四隅補正関係
+// =============================================
+
+let cropEditingIndex = -1;
+
+let cropSourceCanvas = null;
+
+
+// 左上
+// 右上
+// 右下
+// 左下
+//
+// の順番
+
+let cropPoints = [];
+
+
+// 現在ドラッグ中の点
+
+let draggingPointIndex = -1;
+
+
+// =============================================
+// 写真選択
+// =============================================
+
+imageInput.addEventListener(
+    "change",
+    function (event) {
+
+        const files =
+            Array.from(event.target.files);
+
+
+        pages = files.map(
+            function (file) {
+
+                return {
+                    file: file,
+                    rotation: 0,
+                    correctedBlob: null
+                };
+            }
+        );
+
+
+        invalidateGeneratedPdf();
+
+        showPreviews();
+
+
+        // 同じ画像を再選択可能にする
+        imageInput.value = "";
+    }
+);
+
+
+// =============================================
+// 用紙サイズ変更
+// =============================================
+
+document
+    .querySelectorAll(
+        'input[name="paperSize"]'
+    )
+    .forEach(
+        function (radio) {
+
+            radio.addEventListener(
+                "change",
+                function () {
+
+                    invalidateGeneratedPdf();
+                }
+            );
+        }
+    );
+
+
+// =============================================
+// 現在使用する画像
+// =============================================
+
+function getPageSource(pageData) {
+
+    if (pageData.correctedBlob !== null) {
+
+        return pageData.correctedBlob;
+    }
+
+
+    return pageData.file;
+}
+
+
+// =============================================
+// PDFを無効化
+// =============================================
+
+function invalidateGeneratedPdf() {
+
+    generatedPdfBlob = null;
+
+
+    if (pdfBlobUrl !== null) {
+
+        URL.revokeObjectURL(
+            pdfBlobUrl
+        );
+
+        pdfBlobUrl = null;
+    }
+
+
+    pdfPreview.src = "";
+
+    pdfResultSection.style.display =
+        "none";
+}
+
+
+// =============================================
+// プレビュー表示
+// =============================================
+
+function showPreviews() {
+
+    previewContainer.innerHTML = "";
+
+
+    if (pages.length === 0) {
+
+        previewContainer.innerHTML =
+            "<p>写真を選択すると、ここに表示されます。</p>";
+
+        imageCount.textContent =
+            "写真が選択されていません";
+
+        createPdfButton.disabled =
+            true;
+
+        return;
+    }
+
+
+    imageCount.textContent =
+        pages.length +
+        " 枚の写真を選択しました";
+
+
+    createPdfButton.disabled =
+        false;
+
+
+    pages.forEach(
+        function (pageData, index) {
+
+            // =========================
+            // ページ本体
+            // =========================
+
+            const previewItem =
+                document.createElement("div");
+
+            previewItem.className =
+                "preview-item";
+
+
+            // =========================
+            // 画像
+            // =========================
+
+            const imageWrapper =
+                document.createElement("div");
+
+            imageWrapper.className =
+                "preview-image-wrapper";
+
+
+            const img =
+                document.createElement("img");
+
+
+            const imageUrl =
+                URL.createObjectURL(
+                    getPageSource(pageData)
+                );
+
+
+            img.src =
+                imageUrl;
+
+
+            img.style.transform =
+                "rotate(" +
+                pageData.rotation +
+                "deg)";
+
+
+            img.onload =
+                function () {
+
+                    URL.revokeObjectURL(
+                        imageUrl
+                    );
+                };
+
+
+            imageWrapper.appendChild(img);
+
+
+            // =========================
+            // ページ番号
+            // =========================
+
+            const pageNumber =
+                document.createElement("div");
+
+            pageNumber.className =
+                "page-number";
+
+            pageNumber.textContent =
+                index + 1;
+
+
+            // =========================
+            // 操作領域
+            // =========================
+
+            const controls =
+                document.createElement("div");
+
+            controls.className =
+                "preview-controls";
+
+
+            // =========================
+            // 回転
+            // =========================
+
+            const rotateButton =
+                document.createElement("button");
+
+            rotateButton.className =
+                "preview-control-button";
+
+            rotateButton.textContent =
+                "↻ 回転";
+
+
+            rotateButton.addEventListener(
+                "click",
+                function () {
+
+                    pages[index].rotation =
+                        (
+                            pages[index].rotation
+                            + 90
+                        ) % 360;
+
+
+                    invalidateGeneratedPdf();
+
+                    showPreviews();
+                }
+            );
+
+
+            // =========================
+            // 左へ
+            // =========================
+
+            const leftButton =
+                document.createElement("button");
+
+            leftButton.className =
+                "preview-control-button";
+
+            leftButton.textContent =
+                "← 左へ";
+
+
+            if (index === 0) {
+
+                leftButton.disabled =
+                    true;
+            }
+
+
+            leftButton.addEventListener(
+                "click",
+                function () {
+
+                    if (index === 0) {
+
+                        return;
+                    }
+
+
+                    [
+                        pages[index - 1],
+                        pages[index]
+                    ] =
+                        [
+                            pages[index],
+                            pages[index - 1]
+                        ];
+
+
+                    invalidateGeneratedPdf();
+
+                    showPreviews();
+                }
+            );
+
+
+            // =========================
+            // 右へ
+            // =========================
+
+            const rightButton =
+                document.createElement("button");
+
+            rightButton.className =
+                "preview-control-button";
+
+            rightButton.textContent =
+                "右へ →";
+
+
+            if (
+                index ===
+                pages.length - 1
+            ) {
+
+                rightButton.disabled =
+                    true;
+            }
+
+
+            rightButton.addEventListener(
+                "click",
+                function () {
+
+                    if (
+                        index ===
+                        pages.length - 1
+                    ) {
+
+                        return;
+                    }
+
+
+                    [
+                        pages[index],
+                        pages[index + 1]
+                    ] =
+                        [
+                            pages[index + 1],
+                            pages[index]
+                        ];
+
+
+                    invalidateGeneratedPdf();
+
+                    showPreviews();
+                }
+            );
+
+
+            // =========================
+            // 削除
+            // =========================
+
+            const deleteButton =
+                document.createElement("button");
+
+            deleteButton.className =
+                "preview-control-button delete-button";
+
+            deleteButton.textContent =
+                "削除";
+
+
+            deleteButton.addEventListener(
+                "click",
+                function () {
+
+                    const result =
+                        confirm(
+                            "ページ " +
+                            (index + 1) +
+                            " を削除しますか？"
+                        );
+
+
+                    if (!result) {
+
+                        return;
+                    }
+
+
+                    pages.splice(
+                        index,
+                        1
+                    );
+
+
+                    invalidateGeneratedPdf();
+
+                    showPreviews();
+                }
+            );
+
+
+            // =========================
+            // 四隅補正
+            // =========================
+
+            const cropButton =
+                document.createElement("button");
+
+            cropButton.className =
+                "crop-button";
+
+            cropButton.textContent =
+                "四隅補正";
+
+
+            cropButton.addEventListener(
+                "click",
+                function () {
+
+                    openCropEditor(
+                        index
+                    );
+                }
+            );
+
+
+            // =========================
+            // 操作ボタン追加
+            // =========================
+
+            controls.appendChild(
+                rotateButton
+            );
+
+            controls.appendChild(
+                leftButton
+            );
+
+            controls.appendChild(
+                rightButton
+            );
+
+            controls.appendChild(
+                deleteButton
+            );
+
+            controls.appendChild(
+                cropButton
+            );
+
+
+            // =========================
+            // ページ完成
+            // =========================
+
+            previewItem.appendChild(
+                imageWrapper
+            );
+
+            previewItem.appendChild(
+                pageNumber
+            );
+
+            previewItem.appendChild(
+                controls
+            );
+
+
+            previewContainer.appendChild(
+                previewItem
+            );
+        }
+    );
+}
+
+
+// =============================================
+// Blob / Fileから画像を読み込む
+// =============================================
+
+function loadImageFromBlob(blob) {
+
+    return new Promise(
+        function (resolve, reject) {
+
+            const imageUrl =
+                URL.createObjectURL(
+                    blob
+                );
+
+
+            const img =
+                new Image();
+
+
+            img.onload =
+                function () {
+
+                    URL.revokeObjectURL(
+                        imageUrl
+                    );
+
+                    resolve(img);
+                };
+
+
+            img.onerror =
+                function (error) {
+
+                    URL.revokeObjectURL(
+                        imageUrl
+                    );
+
+                    reject(error);
+                };
+
+
+            img.src =
+                imageUrl;
+        }
+    );
+}
+
+
+// =============================================
+// ページをCanvas化
+// 回転も反映
+// =============================================
+
+async function pageToCanvas(
+    pageData
+) {
+
+    const source =
+        getPageSource(
+            pageData
+        );
+
+
+    const img =
+        await loadImageFromBlob(
+            source
+        );
+
+
+    const angle =
+        (
+            (
+                pageData.rotation %
+                360
+            )
+            + 360
+        ) % 360;
+
+
+    const canvas =
+        document.createElement(
+            "canvas"
+        );
+
+
+    if (
+        angle === 90 ||
+        angle === 270
+    ) {
+
+        canvas.width =
+            img.naturalHeight;
+
+        canvas.height =
+            img.naturalWidth;
+
+    } else {
+
+        canvas.width =
+            img.naturalWidth;
+
+        canvas.height =
+            img.naturalHeight;
+    }
+
+
+    const ctx =
+        canvas.getContext(
+            "2d"
+        );
+
+
+    ctx.fillStyle =
+        "white";
+
+    ctx.fillRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+
+    ctx.save();
+
+
+    if (angle === 0) {
+
+        ctx.drawImage(
+            img,
+            0,
+            0
+        );
+
+    } else if (angle === 90) {
+
+        ctx.translate(
+            canvas.width,
+            0
+        );
+
+        ctx.rotate(
+            Math.PI / 2
+        );
+
+        ctx.drawImage(
+            img,
+            0,
+            0
+        );
+
+    } else if (angle === 180) {
+
+        ctx.translate(
+            canvas.width,
+            canvas.height
+        );
+
+        ctx.rotate(
+            Math.PI
+        );
+
+        ctx.drawImage(
+            img,
+            0,
+            0
+        );
+
+    } else if (angle === 270) {
+
+        ctx.translate(
+            0,
+            canvas.height
+        );
+
+        ctx.rotate(
+            -Math.PI / 2
+        );
+
+        ctx.drawImage(
+            img,
+            0,
+            0
+        );
+    }
+
+
+    ctx.restore();
+
+
+    return canvas;
+}
+
+
+// =============================================
+// Canvas → JPEG Blob
+// =============================================
+
+function canvasToJpegBlob(
+    canvas,
+    quality = 0.92
+) {
+
+    return new Promise(
+        function (resolve, reject) {
+
+            canvas.toBlob(
+                function (blob) {
+
+                    if (blob === null) {
+
+                        reject(
+                            new Error(
+                                "JPEG変換に失敗しました。"
+                            )
+                        );
+
+                        return;
+                    }
+
+
+                    resolve(blob);
+                },
+                "image/jpeg",
+                quality
+            );
+        }
+    );
+}
+
+
+// =============================================
+// PDF用JPEG
+// =============================================
+
+async function pageToJpegBytes(
+    pageData
+) {
+
+    const canvas =
+        await pageToCanvas(
+            pageData
+        );
+
+
+    const blob =
+        await canvasToJpegBlob(
+            canvas,
+            0.9
+        );
+
+
+    const arrayBuffer =
+        await blob.arrayBuffer();
+
+
+    return new Uint8Array(
+        arrayBuffer
+    );
+}
+
+
+// =============================================
+// 四隅補正画面を開く
+// =============================================
+
+async function openCropEditor(
+    index
+) {
+
+    cropEditingIndex =
+        index;
+
+
+    cropStatus.textContent =
+        "画像を読み込んでいます...";
+
+
+    cropModal.classList.add(
+        "open"
+    );
+
+
+    document.body.classList.add(
+        "modal-open"
+    );
+
+
+    applyCropButton.disabled =
+        true;
+
+
+    try {
+
+        cropSourceCanvas =
+            await pageToCanvas(
+                pages[index]
+            );
+
+
+        // 編集画面は大きすぎないよう縮小表示
+        const maxWidth =
+            900;
+
+        const maxHeight =
+            700;
+
+
+        const scale =
+            Math.min(
+                1,
+                maxWidth /
+                cropSourceCanvas.width,
+                maxHeight /
+                cropSourceCanvas.height
+            );
+
+
+        cropCanvas.width =
+            Math.max(
+                1,
+                Math.round(
+                    cropSourceCanvas.width *
+                    scale
+                )
+            );
+
+
+        cropCanvas.height =
+            Math.max(
+                1,
+                Math.round(
+                    cropSourceCanvas.height *
+                    scale
+                )
+            );
+
+
+        resetCropPoints();
+
+
+        drawCropEditor();
+
+
+        cropStatus.textContent =
+            "紙の四隅を自動検出しています...";
+
+
+        applyCropButton.disabled =
+            false;
+
+
+        autoDetectCropButton.disabled =
+            true;
+
+
+        try {
+
+            const detected =
+                await autoDetectPaperCorners();
+
+
+            if (detected) {
+
+                cropStatus.textContent =
+                    "紙の四隅を自動検出しました。" +
+                    "ずれている場合は丸を動かして修正してください。";
+
+            } else {
+
+                cropStatus.textContent =
+                    "紙の四隅を自動検出できませんでした。" +
+                    "丸を手動で紙の四隅に合わせてください。";
+            }
+
+        } catch (error) {
+
+            console.error(
+                "四隅自動検出:",
+                error
+            );
+
+
+            cropStatus.textContent =
+                "自動検出に失敗しました。" +
+                "丸を手動で紙の四隅に合わせてください。";
+
+        } finally {
+
+            autoDetectCropButton.disabled =
+                false;
+        }
+
+    } catch (error) {
+
+        console.error(error);
+
+
+        cropStatus.textContent =
+            "画像を読み込めませんでした。";
+
+
+        alert(
+            "画像の読み込みに失敗しました。"
+        );
+    }
+}
+
+
+// =============================================
+// 四隅位置を初期化
+// =============================================
+
+function resetCropPoints() {
+
+    const margin =
+        Math.max(
+            12,
+            Math.min(
+                cropCanvas.width,
+                cropCanvas.height
+            ) * 0.04
+        );
+
+
+    cropPoints =
+        [
+            // 左上
+            {
+                x: margin,
+                y: margin
+            },
+
+            // 右上
+            {
+                x:
+                    cropCanvas.width -
+                    margin,
+                y: margin
+            },
+
+            // 右下
+            {
+                x:
+                    cropCanvas.width -
+                    margin,
+                y:
+                    cropCanvas.height -
+                    margin
+            },
+
+            // 左下
+            {
+                x: margin,
+                y:
+                    cropCanvas.height -
+                    margin
+            }
+        ];
+}
+
+
+// =============================================
+// 四隅補正画面描画
+// =============================================
+
+function drawCropEditor() {
+
+    if (
+        cropSourceCanvas === null
+    ) {
+
+        return;
+    }
+
+
+    const ctx =
+        cropCanvas.getContext(
+            "2d"
+        );
+
+
+    // 元画像
+    ctx.clearRect(
+        0,
+        0,
+        cropCanvas.width,
+        cropCanvas.height
+    );
+
+
+    ctx.drawImage(
+        cropSourceCanvas,
+        0,
+        0,
+        cropCanvas.width,
+        cropCanvas.height
+    );
+
+
+    // =========================
+    // 四角形
+    // =========================
+
+    ctx.save();
+
+
+    ctx.lineWidth = 3;
+
+    ctx.strokeStyle =
+        "#00a7ff";
+
+    ctx.fillStyle =
+        "rgba(0, 167, 255, 0.12)";
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        cropPoints[0].x,
+        cropPoints[0].y
+    );
+
+
+    for (
+        let i = 1;
+        i < cropPoints.length;
+        i++
+    ) {
+
+        ctx.lineTo(
+            cropPoints[i].x,
+            cropPoints[i].y
+        );
+    }
+
+
+    ctx.closePath();
+
+    ctx.fill();
+
+    ctx.stroke();
+
+
+    // =========================
+    // 4個のハンドル
+    // =========================
+
+    cropPoints.forEach(
+        function (point) {
+
+            ctx.beginPath();
+
+            ctx.arc(
+                point.x,
+                point.y,
+                11,
+                0,
+                Math.PI * 2
+            );
+
+
+            ctx.fillStyle =
+                "#007aff";
+
+            ctx.fill();
+
+
+            ctx.lineWidth = 3;
+
+            ctx.strokeStyle =
+                "white";
+
+            ctx.stroke();
+        }
+    );
+
+
+    ctx.restore();
+}
+
+
+// =============================================
+// ポインタ座標
+// =============================================
+
+function getCropPointerPosition(
+    event
+) {
+
+    const rect =
+        cropCanvas.getBoundingClientRect();
+
+
+    return {
+
+        x:
+            (
+                event.clientX -
+                rect.left
+            ) *
+            cropCanvas.width /
+            rect.width,
+
+        y:
+            (
+                event.clientY -
+                rect.top
+            ) *
+            cropCanvas.height /
+            rect.height
+    };
+}
+
+
+// =============================================
+// 点をつかむ
+// =============================================
+
+cropCanvas.addEventListener(
+    "pointerdown",
+    function (event) {
+
+        const pointer =
+            getCropPointerPosition(
+                event
+            );
+
+
+        const rect =
+            cropCanvas.getBoundingClientRect();
+
+
+        // 画面上約35px以内なら選択
+        const threshold =
+            35 *
+            cropCanvas.width /
+            rect.width;
+
+
+        let nearestIndex =
+            -1;
+
+        let nearestDistance =
+            Infinity;
+
+
+        cropPoints.forEach(
+            function (point, index) {
+
+                const dx =
+                    point.x -
+                    pointer.x;
+
+                const dy =
+                    point.y -
+                    pointer.y;
+
+
+                const distance =
+                    Math.sqrt(
+                        dx * dx +
+                        dy * dy
+                    );
+
+
+                if (
+                    distance <
+                    nearestDistance
+                ) {
+
+                    nearestDistance =
+                        distance;
+
+                    nearestIndex =
+                        index;
+                }
+            }
+        );
+
+
+        if (
+            nearestDistance <=
+            threshold
+        ) {
+
+            draggingPointIndex =
+                nearestIndex;
+
+
+            cropCanvas.setPointerCapture(
+                event.pointerId
+            );
+
+
+            event.preventDefault();
+        }
+    }
+);
+
+
+// =============================================
+// 点を動かす
+// =============================================
+
+cropCanvas.addEventListener(
+    "pointermove",
+    function (event) {
+
+        if (
+            draggingPointIndex < 0
+        ) {
+
+            return;
+        }
+
+
+        const pointer =
+            getCropPointerPosition(
+                event
+            );
+
+
+        cropPoints[
+            draggingPointIndex
+        ].x =
+            Math.max(
+                0,
+                Math.min(
+                    cropCanvas.width,
+                    pointer.x
+                )
+            );
+
+
+        cropPoints[
+            draggingPointIndex
+        ].y =
+            Math.max(
+                0,
+                Math.min(
+                    cropCanvas.height,
+                    pointer.y
+                )
+            );
+
+
+        drawCropEditor();
+
+
+        event.preventDefault();
+    }
+);
+
+
+// =============================================
+// 点を離す
+// =============================================
+
+function endCropDrag(
+    event
+) {
+
+    draggingPointIndex =
+        -1;
+
+
+    if (
+        cropCanvas.hasPointerCapture(
+            event.pointerId
+        )
+    ) {
+
+        cropCanvas.releasePointerCapture(
+            event.pointerId
+        );
+    }
+}
+
+
+cropCanvas.addEventListener(
+    "pointerup",
+    endCropDrag
+);
+
+
+cropCanvas.addEventListener(
+    "pointercancel",
+    endCropDrag
+);
+
+
+// =============================================
+// 位置リセット
+// =============================================
+
+resetCropButton.addEventListener(
+    "click",
+    function () {
+
+        resetCropPoints();
+
+        drawCropEditor();
+    }
+);
+
+
+// =============================================
+// 補正画面を閉じる
+// =============================================
+
+function closeCropEditor() {
+
+    cropModal.classList.remove(
+        "open"
+    );
+
+
+    document.body.classList.remove(
+        "modal-open"
+    );
+
+
+    cropEditingIndex =
+        -1;
+
+    cropSourceCanvas =
+        null;
+
+    cropPoints =
+        [];
+
+    draggingPointIndex =
+        -1;
+}
+
+
+cancelCropButton.addEventListener(
+    "click",
+    function () {
+
+        closeCropEditor();
+    }
+);
+
+
+// =============================================
+// 四角形が正常か確認
+// =============================================
+
+function isValidQuadrilateral(
+    points
+) {
+
+    if (
+        points.length !== 4
+    ) {
+
+        return false;
+    }
+
+
+    let sign = 0;
+
+
+    for (
+        let i = 0;
+        i < 4;
+        i++
+    ) {
+
+        const a =
+            points[i];
+
+        const b =
+            points[
+            (i + 1) % 4
+            ];
+
+        const c =
+            points[
+            (i + 2) % 4
+            ];
+
+
+        const cross =
+            (
+                b.x - a.x
+            ) *
+            (
+                c.y - b.y
+            )
+            -
+            (
+                b.y - a.y
+            ) *
+            (
+                c.x - b.x
+            );
+
+
+        if (
+            Math.abs(cross) <
+            1
+        ) {
+
+            return false;
+        }
+
+
+        const currentSign =
+            Math.sign(cross);
+
+
+        if (sign === 0) {
+
+            sign =
+                currentSign;
+
+        } else if (
+            sign !== currentSign
+        ) {
+
+            return false;
+        }
+    }
+
+
+    return true;
+}
+
+// =============================================
+// 4点を
+//
+// 左上 → 右上 → 右下 → 左下
+//
+// の順番に並べる
+// =============================================
+
+function orderFourPoints(points) {
+
+    const center = {
+        x:
+            points.reduce(
+                (sum, p) => sum + p.x,
+                0
+            ) / 4,
+
+        y:
+            points.reduce(
+                (sum, p) => sum + p.y,
+                0
+            ) / 4
+    };
+
+
+    // 中心の周囲に時計回りに並べる
+    const sorted =
+        points.slice().sort(
+            function (a, b) {
+
+                const angleA =
+                    Math.atan2(
+                        a.y - center.y,
+                        a.x - center.x
+                    );
+
+                const angleB =
+                    Math.atan2(
+                        b.y - center.y,
+                        b.x - center.x
+                    );
+
+
+                return angleA - angleB;
+            }
+        );
+
+
+    // 左上を探す
+    let topLeftIndex = 0;
+    let smallestSum = Infinity;
+
+
+    sorted.forEach(
+        function (point, index) {
+
+            const sum =
+                point.x + point.y;
+
+
+            if (sum < smallestSum) {
+
+                smallestSum = sum;
+                topLeftIndex = index;
+            }
+        }
+    );
+
+
+    // 左上から始める
+    return [
+        sorted[
+        topLeftIndex
+        ],
+
+        sorted[
+        (topLeftIndex + 1) % 4
+        ],
+
+        sorted[
+        (topLeftIndex + 2) % 4
+        ],
+
+        sorted[
+        (topLeftIndex + 3) % 4
+        ]
+    ];
+}
+
+// =============================================
+// 四角形の面積
+// =============================================
+
+function quadrilateralArea(points) {
+
+    let area = 0;
+
+
+    for (
+        let i = 0;
+        i < 4;
+        i++
+    ) {
+
+        const j =
+            (i + 1) % 4;
+
+
+        area +=
+            points[i].x *
+            points[j].y;
+
+        area -=
+            points[j].x *
+            points[i].y;
+    }
+
+
+    return Math.abs(
+        area / 2
+    );
+}
+
+
+// =============================================
+// 角度の良さ
+//
+// 1に近いほど90°に近い
+// =============================================
+
+function calculateAngleScore(
+    points
+) {
+
+    let total = 0;
+
+
+    for (
+        let i = 0;
+        i < 4;
+        i++
+    ) {
+
+        const previous =
+            points[
+            (i + 3) % 4
+            ];
+
+        const current =
+            points[i];
+
+        const next =
+            points[
+            (i + 1) % 4
+            ];
+
+
+        const ax =
+            previous.x -
+            current.x;
+
+        const ay =
+            previous.y -
+            current.y;
+
+
+        const bx =
+            next.x -
+            current.x;
+
+        const by =
+            next.y -
+            current.y;
+
+
+        const lengthA =
+            Math.sqrt(
+                ax * ax +
+                ay * ay
+            );
+
+
+        const lengthB =
+            Math.sqrt(
+                bx * bx +
+                by * by
+            );
+
+
+        if (
+            lengthA === 0 ||
+            lengthB === 0
+        ) {
+
+            return 0;
+        }
+
+
+        const cos =
+            Math.abs(
+                (
+                    ax * bx +
+                    ay * by
+                )
+                /
+                (
+                    lengthA *
+                    lengthB
+                )
+            );
+
+
+        // 極端に尖っているものは
+        // 紙として不自然
+        if (cos > 0.90) {
+
+            return 0;
+        }
+
+
+        total +=
+            1 - cos;
+    }
+
+
+    return total / 4;
+}
+
+
+// =============================================
+// A4/B5らしい比率か
+//
+// A4とB5はどちらもほぼ √2
+// =============================================
+
+function calculatePaperRatioScore(
+    points
+) {
+
+    const top =
+        pointDistance(
+            points[0],
+            points[1]
+        );
+
+
+    const right =
+        pointDistance(
+            points[1],
+            points[2]
+        );
+
+
+    const bottom =
+        pointDistance(
+            points[2],
+            points[3]
+        );
+
+
+    const left =
+        pointDistance(
+            points[3],
+            points[0]
+        );
+
+
+    const horizontal =
+        (top + bottom) / 2;
+
+
+    const vertical =
+        (left + right) / 2;
+
+
+    if (
+        horizontal === 0 ||
+        vertical === 0
+    ) {
+
+        return 0;
+    }
+
+
+    const ratio =
+        Math.max(
+            horizontal,
+            vertical
+        )
+        /
+        Math.min(
+            horizontal,
+            vertical
+        );
+
+
+    // 透視変形があるので
+    // √2を厳密には要求しない
+    const error =
+        Math.abs(
+            Math.log(
+                ratio /
+                Math.SQRT2
+            )
+        );
+
+
+    return Math.exp(
+        -1.5 * error
+    );
+}
+
+// =============================================
+// 輪郭群から最も紙らしい四角形を探す
+// =============================================
+
+function findBestQuadrilateral(
+    cv,
+    binaryImage,
+    imageWidth,
+    imageHeight
+) {
+
+    const contours =
+        new cv.MatVector();
+
+
+    const hierarchy =
+        new cv.Mat();
+
+
+    let bestPoints =
+        null;
+
+    let bestScore =
+        -Infinity;
+
+
+    const imageArea =
+        imageWidth *
+        imageHeight;
+
+
+    try {
+
+        cv.findContours(
+            binaryImage,
+            contours,
+            hierarchy,
+            cv.RETR_LIST,
+            cv.CHAIN_APPROX_SIMPLE
+        );
+
+
+        for (
+            let i = 0;
+            i < contours.size();
+            i++
+        ) {
+
+            const contour =
+                contours.get(i);
+
+
+            try {
+
+                const contourArea =
+                    Math.abs(
+                        cv.contourArea(
+                            contour
+                        )
+                    );
+
+
+                const areaRatio =
+                    contourArea /
+                    imageArea;
+
+
+                // =========================
+                // 小さすぎるものを除外
+                // =========================
+
+                if (
+                    areaRatio <
+                    0.12
+                ) {
+
+                    continue;
+                }
+
+
+                // =========================
+                // 写真全体そのものを除外
+                // =========================
+
+                if (
+                    areaRatio >
+                    0.96
+                ) {
+
+                    continue;
+                }
+
+
+                const perimeter =
+                    cv.arcLength(
+                        contour,
+                        true
+                    );
+
+
+                const epsilonRates =
+                    [
+                        0.01,
+                        0.015,
+                        0.02,
+                        0.025,
+                        0.03,
+                        0.04,
+                        0.05
+                    ];
+
+
+                for (
+                    const rate
+                    of epsilonRates
+                ) {
+
+                    const approx =
+                        new cv.Mat();
+
+
+                    try {
+
+                        cv.approxPolyDP(
+                            contour,
+                            approx,
+                            perimeter *
+                            rate,
+                            true
+                        );
+
+
+                        if (
+                            approx.rows !== 4
+                        ) {
+
+                            continue;
+                        }
+
+
+                        if (
+                            typeof cv.isContourConvex ===
+                            "function" &&
+                            !cv.isContourConvex(
+                                approx
+                            )
+                        ) {
+
+                            continue;
+                        }
+
+
+                        const data =
+                            approx.data32S;
+
+
+                        let points =
+                            [];
+
+
+                        for (
+                            let p = 0;
+                            p < 4;
+                            p++
+                        ) {
+
+                            points.push(
+                                {
+                                    x:
+                                        data[
+                                        p * 2
+                                        ],
+
+                                    y:
+                                        data[
+                                        p * 2 + 1
+                                        ]
+                                }
+                            );
+                        }
+
+
+                        points =
+                            orderFourPoints(
+                                points
+                            );
+
+
+                        const area =
+                            quadrilateralArea(
+                                points
+                            );
+
+
+                        const quadAreaRatio =
+                            area /
+                            imageArea;
+
+
+                        if (
+                            quadAreaRatio <
+                            0.12 ||
+                            quadAreaRatio >
+                            0.96
+                        ) {
+
+                            continue;
+                        }
+
+
+                        // =========================
+                        // 画像外周に張り付いているか
+                        // =========================
+
+                        const borderMargin =
+                            Math.min(
+                                imageWidth,
+                                imageHeight
+                            ) * 0.015;
+
+
+                        let borderCornerCount =
+                            0;
+
+
+                        for (
+                            const point
+                            of points
+                        ) {
+
+                            if (
+                                point.x <
+                                borderMargin ||
+
+                                point.y <
+                                borderMargin ||
+
+                                point.x >
+                                imageWidth -
+                                borderMargin ||
+
+                                point.y >
+                                imageHeight -
+                                borderMargin
+                            ) {
+
+                                borderCornerCount++;
+                            }
+                        }
+
+
+                        // 4角全部が画像端なら
+                        // 写真そのものの外枠の可能性大
+                        if (
+                            borderCornerCount >= 3
+                        ) {
+
+                            continue;
+                        }
+
+
+                        // =========================
+                        // 採点
+                        // =========================
+
+                        const angleScore =
+                            calculateAngleScore(
+                                points
+                            );
+
+
+                        if (
+                            angleScore === 0
+                        ) {
+
+                            continue;
+                        }
+
+
+                        const ratioScore =
+                            calculatePaperRatioScore(
+                                points
+                            );
+
+
+                        // 大きさ
+                        const sizeScore =
+                            Math.min(
+                                quadAreaRatio /
+                                0.70,
+                                1
+                            );
+
+
+                        // =================================
+                        // 総合得点
+                        //
+                        // 面積だけではなく、
+                        // ・紙として十分大きい
+                        // ・角が長方形らしい
+                        // ・A4/B5らしい
+                        // を総合評価
+                        // =================================
+
+                        const score =
+                            sizeScore * 0.50
+                            +
+                            angleScore * 0.35
+                            +
+                            ratioScore * 0.15;
+
+
+                        if (
+                            score >
+                            bestScore
+                        ) {
+
+                            bestScore =
+                                score;
+
+
+                            bestPoints =
+                                points.map(
+                                    p => ({
+                                        x: p.x,
+                                        y: p.y
+                                    })
+                                );
+                        }
+
+
+                        break;
+
+                    } finally {
+
+                        approx.delete();
+                    }
+                }
+
+            } finally {
+
+                contour.delete();
+            }
+        }
+
+    } finally {
+
+        contours.delete();
+
+        hierarchy.delete();
+    }
+
+
+    return {
+        points:
+            bestPoints,
+
+        score:
+            bestScore
+    };
+}
+
+// =============================================
+// 四隅位置をサブピクセル精度で補正
+// =============================================
+
+function refinePaperCorners(
+    cv,
+    gray,
+    points
+) {
+
+    if (
+        points === null ||
+        points.length !== 4
+    ) {
+
+        return points;
+    }
+
+
+    const cornerMat =
+        cv.matFromArray(
+            4,
+            1,
+            cv.CV_32FC2,
+            [
+                points[0].x,
+                points[0].y,
+
+                points[1].x,
+                points[1].y,
+
+                points[2].x,
+                points[2].y,
+
+                points[3].x,
+                points[3].y
+            ]
+        );
+
+
+    try {
+
+        const winSize =
+            new cv.Size(
+                15,
+                15
+            );
+
+
+        const zeroZone =
+            new cv.Size(
+                -1,
+                -1
+            );
+
+
+        const criteria =
+            new cv.TermCriteria(
+                cv.TermCriteria_EPS +
+                cv.TermCriteria_MAX_ITER,
+                40,
+                0.01
+            );
+
+
+        cv.cornerSubPix(
+            gray,
+            cornerMat,
+            winSize,
+            zeroZone,
+            criteria
+        );
+
+
+        const data =
+            cornerMat.data32F;
+
+
+        return orderFourPoints(
+            [
+                {
+                    x: data[0],
+                    y: data[1]
+                },
+
+                {
+                    x: data[2],
+                    y: data[3]
+                },
+
+                {
+                    x: data[4],
+                    y: data[5]
+                },
+
+                {
+                    x: data[6],
+                    y: data[7]
+                }
+            ]
+        );
+
+    } catch (error) {
+
+        console.warn(
+            "cornerSubPixによる微調整を使用できませんでした。",
+            error
+        );
+
+
+        return points;
+
+    } finally {
+
+        cornerMat.delete();
+    }
+}
+
+// =============================================
+// グレースケール画像を
+// 暗・中間・明の3グループに分ける
+//
+// 白い紙と机の明度差を自動取得する
+// =============================================
+
+function estimatePaperThreshold(gray) {
+
+    const histogram =
+        new Array(256).fill(0);
+
+
+    const data =
+        gray.data;
+
+
+    for (
+        let i = 0;
+        i < data.length;
+        i++
+    ) {
+
+        histogram[
+            data[i]
+        ]++;
+    }
+
+
+    // 初期中心
+    let centers =
+        [
+            50,
+            140,
+            220
+        ];
+
+
+    // 1次元k-means
+    for (
+        let iteration = 0;
+        iteration < 20;
+        iteration++
+    ) {
+
+        const sums =
+            [0, 0, 0];
+
+        const counts =
+            [0, 0, 0];
+
+
+        for (
+            let value = 0;
+            value < 256;
+            value++
+        ) {
+
+            const count =
+                histogram[value];
+
+
+            if (
+                count === 0
+            ) {
+
+                continue;
+            }
+
+
+            let bestCluster =
+                0;
+
+            let bestDistance =
+                Infinity;
+
+
+            for (
+                let k = 0;
+                k < 3;
+                k++
+            ) {
+
+                const distance =
+                    Math.abs(
+                        value -
+                        centers[k]
+                    );
+
+
+                if (
+                    distance <
+                    bestDistance
+                ) {
+
+                    bestDistance =
+                        distance;
+
+                    bestCluster =
+                        k;
+                }
+            }
+
+
+            sums[bestCluster] +=
+                value *
+                count;
+
+            counts[bestCluster] +=
+                count;
+        }
+
+
+        const newCenters =
+            centers.slice();
+
+
+        for (
+            let k = 0;
+            k < 3;
+            k++
+        ) {
+
+            if (
+                counts[k] > 0
+            ) {
+
+                newCenters[k] =
+                    sums[k] /
+                    counts[k];
+            }
+        }
+
+
+        const difference =
+            Math.max(
+                Math.abs(
+                    newCenters[0] -
+                    centers[0]
+                ),
+
+                Math.abs(
+                    newCenters[1] -
+                    centers[1]
+                ),
+
+                Math.abs(
+                    newCenters[2] -
+                    centers[2]
+                )
+            );
+
+
+        centers =
+            newCenters;
+
+
+        if (
+            difference <
+            0.1
+        ) {
+
+            break;
+        }
+    }
+
+
+    centers.sort(
+        function (a, b) {
+
+            return a - b;
+        }
+    );
+
+
+    const dark =
+        centers[0];
+
+    const middle =
+        centers[1];
+
+    const bright =
+        centers[2];
+
+
+    console.log(
+        "明度グループ:",
+        {
+            dark,
+            middle,
+            bright
+        }
+    );
+
+
+    // ================================
+    // 中間色（机）と明色（紙）の間
+    //
+    // ちょうど50%ではなく55%にして、
+    // 机の照明反射を紙として拾いにくくする
+    // ================================
+
+    const threshold =
+        middle +
+        (
+            bright -
+            middle
+        ) * 0.55;
+
+
+    console.log(
+        "紙抽出しきい値:",
+        threshold
+    );
+
+
+    return threshold;
+}
+
+// =============================================
+// 白い紙領域から四角形を取得
+// =============================================
+
+function findPaperFromBrightRegion(
+    cv,
+    mask,
+    imageWidth,
+    imageHeight
+) {
+
+    const contours =
+        new cv.MatVector();
+
+
+    const hierarchy =
+        new cv.Mat();
+
+
+    let bestPoints =
+        null;
+
+    let bestArea =
+        0;
+
+
+    const imageArea =
+        imageWidth *
+        imageHeight;
+
+
+    try {
+
+        // 外側の輪郭だけ取得
+        cv.findContours(
+            mask,
+            contours,
+            hierarchy,
+            cv.RETR_EXTERNAL,
+            cv.CHAIN_APPROX_SIMPLE
+        );
+
+
+        for (
+            let i = 0;
+            i < contours.size();
+            i++
+        ) {
+
+            const contour =
+                contours.get(i);
+
+
+            try {
+
+                const area =
+                    Math.abs(
+                        cv.contourArea(
+                            contour
+                        )
+                    );
+
+
+                const areaRatio =
+                    area /
+                    imageArea;
+
+
+                // =========================
+                // 紙として小さすぎる領域は除外
+                // =========================
+
+                if (
+                    areaRatio <
+                    0.12
+                ) {
+
+                    continue;
+                }
+
+
+                // =========================
+                // 画像全体そのものは除外
+                // =========================
+
+                if (
+                    areaRatio >
+                    0.95
+                ) {
+
+                    continue;
+                }
+
+
+                const hull =
+                    new cv.Mat();
+
+
+                try {
+
+                    // 凹凸を消して外周を得る
+                    cv.convexHull(
+                        contour,
+                        hull,
+                        false,
+                        true
+                    );
+
+
+                    const perimeter =
+                        cv.arcLength(
+                            hull,
+                            true
+                        );
+
+
+                    // =================================
+                    // 輪郭を4角形へ近似
+                    //
+                    // 弱 → 強へ順番に試す
+                    // =================================
+
+                    const rates =
+                        [
+                            0.012,
+                            0.015,
+                            0.018,
+                            0.020,
+                            0.022,
+                            0.025,
+                            0.030,
+                            0.040,
+                            0.050
+                        ];
+
+
+                    for (
+                        const rate
+                        of rates
+                    ) {
+
+                        const approx =
+                            new cv.Mat();
+
+
+                        try {
+
+                            cv.approxPolyDP(
+                                hull,
+                                approx,
+                                perimeter *
+                                rate,
+                                true
+                            );
+
+
+                            if (
+                                approx.rows !== 4
+                            ) {
+
+                                continue;
+                            }
+
+
+                            const raw =
+                                approx.data32S;
+
+
+                            const points =
+                                [];
+
+
+                            for (
+                                let p = 0;
+                                p < 4;
+                                p++
+                            ) {
+
+                                points.push(
+                                    {
+                                        x:
+                                            raw[
+                                            p * 2
+                                            ],
+
+                                        y:
+                                            raw[
+                                            p * 2 + 1
+                                            ]
+                                    }
+                                );
+                            }
+
+
+                            const ordered =
+                                orderFourPoints(
+                                    points
+                                );
+
+
+                            const quadArea =
+                                quadrilateralArea(
+                                    ordered
+                                );
+
+
+                            // 最大の紙候補を採用
+                            if (
+                                quadArea >
+                                bestArea
+                            ) {
+
+                                bestArea =
+                                    quadArea;
+
+
+                                bestPoints =
+                                    ordered.map(
+                                        function (point) {
+
+                                            return {
+                                                x:
+                                                    point.x,
+
+                                                y:
+                                                    point.y
+                                            };
+                                        }
+                                    );
+                            }
+
+
+                            break;
+
+                        } finally {
+
+                            approx.delete();
+                        }
+                    }
+
+                } finally {
+
+                    hull.delete();
+                }
+
+            } finally {
+
+                contour.delete();
+            }
+        }
+
+    } finally {
+
+        contours.delete();
+
+        hierarchy.delete();
+    }
+
+
+    return bestPoints;
+}
+
+// =============================================
+// 紙の四隅を自動検出
+//
+// 白い紙領域を直接抽出する方式
+// =============================================
+
+async function autoDetectPaperCorners() {
+
+    if (
+        cropSourceCanvas === null
+    ) {
+
+        return false;
+    }
+
+
+    const cv =
+        await getOpenCv();
+
+
+    // =========================================
+    // 検出用画像を縮小
+    // =========================================
+
+    const detectionCanvas =
+        document.createElement(
+            "canvas"
+        );
+
+
+    const originalWidth =
+        cropSourceCanvas.width;
+
+    const originalHeight =
+        cropSourceCanvas.height;
+
+
+    const maxDetectionSize =
+        1400;
+
+
+    const scale =
+        Math.min(
+            1,
+            maxDetectionSize /
+            Math.max(
+                originalWidth,
+                originalHeight
+            )
+        );
+
+
+    detectionCanvas.width =
+        Math.max(
+            1,
+            Math.round(
+                originalWidth *
+                scale
+            )
+        );
+
+
+    detectionCanvas.height =
+        Math.max(
+            1,
+            Math.round(
+                originalHeight *
+                scale
+            )
+        );
+
+
+    const context =
+        detectionCanvas.getContext(
+            "2d"
+        );
+
+
+    context.drawImage(
+        cropSourceCanvas,
+        0,
+        0,
+        detectionCanvas.width,
+        detectionCanvas.height
+    );
+
+
+    // =========================================
+    // OpenCV Mat
+    // =========================================
+
+    let src = null;
+
+    let gray = null;
+
+    let blurred = null;
+
+    let mask = null;
+
+    let closed = null;
+
+    let cleaned = null;
+
+    let closeKernel = null;
+
+    let openKernel = null;
+
+
+    try {
+
+        // =====================================
+        // Canvas → OpenCV
+        // =====================================
+
+        src =
+            cv.imread(
+                detectionCanvas
+            );
+
+
+        gray =
+            new cv.Mat();
+
+
+        blurred =
+            new cv.Mat();
+
+
+        mask =
+            new cv.Mat();
+
+
+        closed =
+            new cv.Mat();
+
+
+        cleaned =
+            new cv.Mat();
+
+
+        // =====================================
+        // グレースケール
+        // =====================================
+
+        cv.cvtColor(
+            src,
+            gray,
+            cv.COLOR_RGBA2GRAY
+        );
+
+
+        // =====================================
+        // 小さなノイズ除去
+        // =====================================
+
+        cv.GaussianBlur(
+            gray,
+            blurred,
+            new cv.Size(
+                5,
+                5
+            ),
+            0
+        );
+
+
+        // =====================================
+        // 紙と机の明るさを自動分析
+        // =====================================
+
+        const paperThreshold =
+            estimatePaperThreshold(
+                blurred
+            );
+
+
+        // =====================================
+        // 白い部分を抽出
+        // =====================================
+
+        cv.threshold(
+            blurred,
+            mask,
+            paperThreshold,
+            255,
+            cv.THRESH_BINARY
+        );
+
+
+        // =====================================
+        // 穴・文字・紙の影による細かい欠損を
+        // ある程度つなげる
+        // =====================================
+
+        let closeSize =
+            Math.round(
+                Math.min(
+                    detectionCanvas.width,
+                    detectionCanvas.height
+                ) *
+                0.014
+            );
+
+
+        // 奇数にする
+        if (
+            closeSize % 2 === 0
+        ) {
+
+            closeSize++;
+        }
+
+
+        closeSize =
+            Math.max(
+                9,
+                Math.min(
+                    closeSize,
+                    25
+                )
+            );
+
+
+        closeKernel =
+            cv.getStructuringElement(
+                cv.MORPH_ELLIPSE,
+                new cv.Size(
+                    closeSize,
+                    closeSize
+                )
+            );
+
+
+        cv.morphologyEx(
+            mask,
+            closed,
+            cv.MORPH_CLOSE,
+            closeKernel,
+            new cv.Point(
+                -1,
+                -1
+            ),
+            2
+        );
+
+
+        // =====================================
+        // 細かいゴミを消す
+        // =====================================
+
+        let openSize =
+            Math.round(
+                closeSize *
+                0.6
+            );
+
+
+        if (
+            openSize % 2 === 0
+        ) {
+
+            openSize++;
+        }
+
+
+        openSize =
+            Math.max(
+                5,
+                openSize
+            );
+
+
+        openKernel =
+            cv.getStructuringElement(
+                cv.MORPH_ELLIPSE,
+                new cv.Size(
+                    openSize,
+                    openSize
+                )
+            );
+
+
+        cv.morphologyEx(
+            closed,
+            cleaned,
+            cv.MORPH_OPEN,
+            openKernel,
+            new cv.Point(
+                -1,
+                -1
+            ),
+            1
+        );
+
+
+        // =====================================
+        // 白い領域から紙を探索
+        // =====================================
+
+        const detectedPoints =
+            findPaperFromBrightRegion(
+                cv,
+                cleaned,
+                detectionCanvas.width,
+                detectionCanvas.height
+            );
+
+
+        if (
+            detectedPoints === null
+        ) {
+
+            console.log(
+                "白い紙領域を検出できませんでした。"
+            );
+
+
+            return false;
+        }
+
+
+        // =====================================
+        // 検出Canvas
+        // ↓
+        // 編集Canvas
+        // =====================================
+
+        const scaleX =
+            cropCanvas.width /
+            detectionCanvas.width;
+
+
+        const scaleY =
+            cropCanvas.height /
+            detectionCanvas.height;
+
+
+        cropPoints =
+            detectedPoints.map(
+                function (point) {
+
+                    return {
+
+                        x:
+                            point.x *
+                            scaleX,
+
+                        y:
+                            point.y *
+                            scaleY
+                    };
+                }
+            );
+
+
+        console.log(
+            "検出した紙の四隅:",
+            cropPoints
+        );
+
+
+        drawCropEditor();
+
+
+        return true;
+
+    } finally {
+
+        if (src !== null) {
+
+            src.delete();
+        }
+
+
+        if (gray !== null) {
+
+            gray.delete();
+        }
+
+
+        if (blurred !== null) {
+
+            blurred.delete();
+        }
+
+
+        if (mask !== null) {
+
+            mask.delete();
+        }
+
+
+        if (closed !== null) {
+
+            closed.delete();
+        }
+
+
+        if (cleaned !== null) {
+
+            cleaned.delete();
+        }
+
+
+        if (
+            closeKernel !== null
+        ) {
+
+            closeKernel.delete();
+        }
+
+
+        if (
+            openKernel !== null
+        ) {
+
+            openKernel.delete();
+        }
+    }
+}
+
+// =============================================
+// 四隅自動検出ボタン
+// =============================================
+
+autoDetectCropButton.addEventListener(
+    "click",
+    async function () {
+
+        if (
+            cropSourceCanvas === null
+        ) {
+
+            return;
+        }
+
+
+        autoDetectCropButton.disabled =
+            true;
+
+        applyCropButton.disabled =
+            true;
+
+
+        cropStatus.textContent =
+            "紙の四隅を自動検出しています...";
+
+
+        try {
+
+            const detected =
+                await autoDetectPaperCorners();
+
+
+            if (detected) {
+
+                cropStatus.textContent =
+                    "紙の四隅を検出しました。" +
+                    "必要であれば丸を動かして修正してください。";
+
+            } else {
+
+                cropStatus.textContent =
+                    "紙の四隅を自動検出できませんでした。" +
+                    "丸を手動で紙の四隅に合わせてください。";
+            }
+
+        } catch (error) {
+
+            console.error(
+                error
+            );
+
+
+            cropStatus.textContent =
+                "自動検出中にエラーが発生しました。";
+
+
+            alert(
+                "四隅の自動検出中にエラーが発生しました。\n\n" +
+                error.message
+            );
+
+        } finally {
+
+            autoDetectCropButton.disabled =
+                false;
+
+            applyCropButton.disabled =
+                false;
+        }
+    }
+);
+
+// =============================================
+// 2点間距離
+// =============================================
+
+function pointDistance(
+    a,
+    b
+) {
+
+    const dx =
+        a.x - b.x;
+
+    const dy =
+        a.y - b.y;
+
+
+    return Math.sqrt(
+        dx * dx +
+        dy * dy
+    );
+}
+
+
+// =============================================
+// OpenCV読み込み待ち
+// =============================================
+
+async function getOpenCv() {
+
+    const startTime =
+        Date.now();
+
+
+    while (
+        Date.now() - startTime <
+        30000
+    ) {
+
+        // 読み込み失敗
+        if (
+            window.openCvLoadFailed
+        ) {
+
+            throw new Error(
+                "OpenCV.jsの読み込みまたは初期化に失敗しました。"
+            );
+        }
+
+
+        // 読み込み完了
+        if (
+            window.openCvReady &&
+            window.cv &&
+            window.cv.Mat
+        ) {
+
+            return window.cv;
+        }
+
+
+        await new Promise(
+            function (resolve) {
+
+                setTimeout(
+                    resolve,
+                    100
+                );
+            }
+        );
+    }
+
+
+    throw new Error(
+        "OpenCV.jsの初期化が30秒以内に完了しませんでした。"
+    );
+}
+
+
+// =============================================
+// 補正適用
+// =============================================
+
+applyCropButton.addEventListener(
+    "click",
+    async function () {
+
+        if (
+            cropEditingIndex < 0 ||
+            cropSourceCanvas === null
+        ) {
+
+            return;
+        }
+
+
+        if (
+            !isValidQuadrilateral(
+                cropPoints
+            )
+        ) {
+
+            alert(
+                "四隅の位置が交差しています。\n" +
+                "左上・右上・右下・左下の順になるよう調整してください。"
+            );
+
+            return;
+        }
+
+
+        applyCropButton.disabled =
+            true;
+
+        resetCropButton.disabled =
+            true;
+
+        cancelCropButton.disabled =
+            true;
+
+
+        cropStatus.textContent =
+            "補正処理中です...";
+
+
+        let src = null;
+        let dst = null;
+        let srcTri = null;
+        let dstTri = null;
+        let matrix = null;
+
+
+        try {
+
+            const cv =
+                await getOpenCv();
+
+
+            // =========================
+            // 編集画面座標
+            // ↓
+            // 元画像座標
+            // =========================
+
+            const scaleX =
+                cropSourceCanvas.width /
+                cropCanvas.width;
+
+            const scaleY =
+                cropSourceCanvas.height /
+                cropCanvas.height;
+
+
+            const sourcePoints =
+                cropPoints.map(
+                    function (point) {
+
+                        return {
+
+                            x:
+                                point.x *
+                                scaleX,
+
+                            y:
+                                point.y *
+                                scaleY
+                        };
+                    }
+                );
+
+
+            const top =
+                pointDistance(
+                    sourcePoints[0],
+                    sourcePoints[1]
+                );
+
+
+            const right =
+                pointDistance(
+                    sourcePoints[1],
+                    sourcePoints[2]
+                );
+
+
+            const bottom =
+                pointDistance(
+                    sourcePoints[2],
+                    sourcePoints[3]
+                );
+
+
+            const left =
+                pointDistance(
+                    sourcePoints[3],
+                    sourcePoints[0]
+                );
+
+
+            const horizontal =
+                Math.max(
+                    top,
+                    bottom
+                );
+
+
+            const vertical =
+                Math.max(
+                    left,
+                    right
+                );
+
+
+            // A4/B5はほぼ1 : √2
+            const paperRatio =
+                Math.SQRT2;
+
+
+            let outputWidth;
+            let outputHeight;
+
+
+            // =========================
+            // 縦向き
+            // =========================
+
+            if (
+                vertical >=
+                horizontal
+            ) {
+
+                outputWidth =
+                    Math.max(
+                        horizontal,
+                        vertical /
+                        paperRatio
+                    );
+
+
+                outputHeight =
+                    outputWidth *
+                    paperRatio;
+
+            } else {
+
+                // =====================
+                // 横向き
+                // =====================
+
+                outputHeight =
+                    Math.max(
+                        vertical,
+                        horizontal /
+                        paperRatio
+                    );
+
+
+                outputWidth =
+                    outputHeight *
+                    paperRatio;
+            }
+
+
+            outputWidth =
+                Math.round(
+                    outputWidth
+                );
+
+            outputHeight =
+                Math.round(
+                    outputHeight
+                );
+
+
+            // =========================
+            // メモリ消費を抑えるため
+            // 長辺を最大3508pxに制限
+            // =========================
+
+            const maxLongEdge =
+                3508;
+
+
+            const longEdge =
+                Math.max(
+                    outputWidth,
+                    outputHeight
+                );
+
+
+            if (
+                longEdge >
+                maxLongEdge
+            ) {
+
+                const reduction =
+                    maxLongEdge /
+                    longEdge;
+
+
+                outputWidth =
+                    Math.round(
+                        outputWidth *
+                        reduction
+                    );
+
+
+                outputHeight =
+                    Math.round(
+                        outputHeight *
+                        reduction
+                    );
+            }
+
+
+            // =========================
+            // OpenCVへ読み込み
+            // =========================
+
+            src =
+                cv.imread(
+                    cropSourceCanvas
+                );
+
+
+            dst =
+                new cv.Mat();
+
+
+            srcTri =
+                cv.matFromArray(
+                    4,
+                    1,
+                    cv.CV_32FC2,
+                    [
+                        // 左上
+                        sourcePoints[0].x,
+                        sourcePoints[0].y,
+
+                        // 右上
+                        sourcePoints[1].x,
+                        sourcePoints[1].y,
+
+                        // 右下
+                        sourcePoints[2].x,
+                        sourcePoints[2].y,
+
+                        // 左下
+                        sourcePoints[3].x,
+                        sourcePoints[3].y
+                    ]
+                );
+
+
+            dstTri =
+                cv.matFromArray(
+                    4,
+                    1,
+                    cv.CV_32FC2,
+                    [
+                        0,
+                        0,
+
+                        outputWidth - 1,
+                        0,
+
+                        outputWidth - 1,
+                        outputHeight - 1,
+
+                        0,
+                        outputHeight - 1
+                    ]
+                );
+
+
+            matrix =
+                cv.getPerspectiveTransform(
+                    srcTri,
+                    dstTri
+                );
+
+
+            const outputSize =
+                new cv.Size(
+                    outputWidth,
+                    outputHeight
+                );
+
+
+            cv.warpPerspective(
+                src,
+                dst,
+                matrix,
+                outputSize,
+                cv.INTER_LINEAR,
+                cv.BORDER_CONSTANT,
+                new cv.Scalar(
+                    255,
+                    255,
+                    255,
+                    255
+                )
+            );
+
+
+            // =========================
+            // 補正画像Canvas
+            // =========================
+
+            const outputCanvas =
+                document.createElement(
+                    "canvas"
+                );
+
+
+            outputCanvas.width =
+                outputWidth;
+
+            outputCanvas.height =
+                outputHeight;
+
+
+            cv.imshow(
+                outputCanvas,
+                dst
+            );
+
+
+            // =========================
+            // JPEGとして保存
+            // =========================
+
+            const correctedBlob =
+                await canvasToJpegBlob(
+                    outputCanvas,
+                    0.92
+                );
+
+
+            pages[
+                cropEditingIndex
+            ].correctedBlob =
+                correctedBlob;
+
+
+            // 現在の回転状態も
+            // 補正画像に焼き込まれたため0に戻す
+            pages[
+                cropEditingIndex
+            ].rotation =
+                0;
+
+
+            invalidateGeneratedPdf();
+
+
+            closeCropEditor();
+
+
+            showPreviews();
+
+        } catch (error) {
+
+            console.error(error);
+
+
+            cropStatus.textContent =
+                "補正に失敗しました。";
+
+
+            alert(
+                "四隅補正中にエラーが発生しました。\n\n" +
+                error.message
+            );
+
+        } finally {
+
+            // OpenCVメモリ解放
+
+            if (src !== null) {
+
+                src.delete();
+            }
+
+
+            if (dst !== null) {
+
+                dst.delete();
+            }
+
+
+            if (srcTri !== null) {
+
+                srcTri.delete();
+            }
+
+
+            if (dstTri !== null) {
+
+                dstTri.delete();
+            }
+
+
+            if (matrix !== null) {
+
+                matrix.delete();
+            }
+
+
+            applyCropButton.disabled =
+                false;
+
+            resetCropButton.disabled =
+                false;
+
+            cancelCropButton.disabled =
+                false;
+        }
+    }
+);
+
+
+// =============================================
+// PDF作成
+// =============================================
+
+createPdfButton.addEventListener(
+    "click",
+    async function () {
+
+        if (
+            pages.length === 0
+        ) {
+
+            alert(
+                "写真を選択してください。"
+            );
+
+            return;
+        }
+
+
+        createPdfButton.disabled =
+            true;
+
+        createPdfButton.textContent =
+            "PDFを作成中...";
+
+
+        try {
+
+            const {
+                PDFDocument
+            } = PDFLib;
+
+
+            const pdfDoc =
+                await PDFDocument.create();
+
+
+            const selectedPaper =
+                document.querySelector(
+                    'input[name="paperSize"]:checked'
+                ).value;
+
+
+            let pageWidth;
+            let pageHeight;
+
+
+            if (
+                selectedPaper === "A4"
+            ) {
+
+                pageWidth =
+                    595.28;
+
+                pageHeight =
+                    841.89;
+
+            } else {
+
+                pageWidth =
+                    515.91;
+
+                pageHeight =
+                    728.50;
+            }
+
+
+            // =========================
+            // 各画像
+            // =========================
+
+            for (
+                let i = 0;
+                i < pages.length;
+                i++
+            ) {
+
+                const jpegBytes =
+                    await pageToJpegBytes(
+                        pages[i]
+                    );
+
+
+                const pdfImage =
+                    await pdfDoc.embedJpg(
+                        jpegBytes
+                    );
+
+
+                const page =
+                    pdfDoc.addPage(
+                        [
+                            pageWidth,
+                            pageHeight
+                        ]
+                    );
+
+
+                const scale =
+                    Math.min(
+                        pageWidth /
+                        pdfImage.width,
+
+                        pageHeight /
+                        pdfImage.height
+                    );
+
+
+                const drawWidth =
+                    pdfImage.width *
+                    scale;
+
+
+                const drawHeight =
+                    pdfImage.height *
+                    scale;
+
+
+                const x =
+                    (
+                        pageWidth -
+                        drawWidth
+                    ) / 2;
+
+
+                const y =
+                    (
+                        pageHeight -
+                        drawHeight
+                    ) / 2;
+
+
+                page.drawImage(
+                    pdfImage,
+                    {
+                        x: x,
+                        y: y,
+
+                        width:
+                            drawWidth,
+
+                        height:
+                            drawHeight
+                    }
+                );
+            }
+
+
+            // =========================
+            // PDF生成
+            // =========================
+
+            const pdfBytes =
+                await pdfDoc.save();
+
+
+            generatedPdfBlob =
+                new Blob(
+                    [pdfBytes],
+                    {
+                        type:
+                            "application/pdf"
+                    }
+                );
+
+
+            if (
+                pdfBlobUrl !== null
+            ) {
+
+                URL.revokeObjectURL(
+                    pdfBlobUrl
+                );
+            }
+
+
+            pdfBlobUrl =
+                URL.createObjectURL(
+                    generatedPdfBlob
+                );
+
+
+            pdfPreview.src =
+                pdfBlobUrl;
+
+
+            pdfResultSection.style.display =
+                "block";
+
+
+            pdfResultSection.scrollIntoView(
+                {
+                    behavior:
+                        "smooth"
+                }
+            );
+
+        } catch (error) {
+
+            console.error(error);
+
+
+            alert(
+                "PDFの作成中にエラーが発生しました。\n\n" +
+                error.message
+            );
+
+        } finally {
+
+            createPdfButton.disabled =
+                false;
+
+            createPdfButton.textContent =
+                "PDFを作成";
+        }
+    }
+);
+
+
+// =============================================
+// PDF保存
+// =============================================
+
+savePdfButton.addEventListener(
+    "click",
+    function () {
+
+        if (
+            generatedPdfBlob === null
+        ) {
+
+            alert(
+                "先にPDFを作成してください。"
+            );
+
+            return;
+        }
+
+
+        let fileName =
+            fileNameInput.value.trim();
+
+
+        if (
+            fileName === ""
+        ) {
+
+            fileName =
+                "document";
+        }
+
+
+        if (
+            !fileName
+                .toLowerCase()
+                .endsWith(".pdf")
+        ) {
+
+            fileName +=
+                ".pdf";
+        }
+
+
+        const downloadUrl =
+            URL.createObjectURL(
+                generatedPdfBlob
+            );
+
+
+        const link =
+            document.createElement(
+                "a"
+            );
+
+
+        link.href =
+            downloadUrl;
+
+        link.download =
+            fileName;
+
+
+        document.body.appendChild(
+            link
+        );
+
+
+        link.click();
+
+
+        document.body.removeChild(
+            link
+        );
+
+
+        setTimeout(
+            function () {
+
+                URL.revokeObjectURL(
+                    downloadUrl
+                );
+
+            },
+            1000
+        );
+    }
+);

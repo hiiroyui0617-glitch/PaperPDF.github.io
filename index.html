@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>PaperPDF</title>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <header>
+        <h1>PaperPDF</h1>
+        <p>A4 / B5 書類をPDFに変換</p>
+    </header>
+
+    <main>
+
+        <!-- 写真選択 -->
+        <section class="card">
+
+            <h2>1. 写真を選択</h2>
+
+            <label class="file-button">
+                写真を選択
+                <input type="file"
+                       id="imageInput"
+                       accept="image/*"
+                       multiple>
+            </label>
+
+            <p id="imageCount">
+                写真が選択されていません
+            </p>
+
+        </section>
+
+
+        <!-- 用紙サイズ -->
+        <section class="card">
+
+            <h2>2. PDF用紙サイズ</h2>
+
+            <div class="paper-options">
+
+                <label>
+                    <input type="radio"
+                           name="paperSize"
+                           value="A4"
+                           checked>
+                    A4
+                </label>
+
+                <label>
+                    <input type="radio"
+                           name="paperSize"
+                           value="B5">
+                    B5
+                </label>
+
+            </div>
+
+        </section>
+
+
+        <!-- プレビュー -->
+        <section class="card">
+
+            <h2>3. 選択した写真</h2>
+
+            <div id="previewContainer" class="preview-container">
+
+                <p id="emptyMessage">
+                    写真を選択すると、ここに表示されます。
+                </p>
+
+            </div>
+
+        </section>
+
+
+        <!-- PDF作成 -->
+        <section class="card">
+
+            <button id="createPdfButton"
+                    class="create-button"
+                    disabled>
+                PDFを作成
+            </button>
+
+        </section>
+        <!-- PDFプレビュー -->
+        <section id="pdfResultSection"
+                 class="card"
+                 style="display: none;">
+
+            <h2>4. PDFプレビュー</h2>
+
+            <iframe id="pdfPreview"
+                    class="pdf-preview"></iframe>
+
+            <div class="save-area">
+
+                <label for="fileName">
+                    ファイル名
+                </label>
+
+                <input type="text"
+                       id="fileName"
+                       value="document">
+
+                <button id="savePdfButton"
+                        class="save-button">
+                    PDFを保存
+                </button>
+
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- =================================
+     四隅補正画面
+     ================================= -->
+
+    <div id="cropModal" class="crop-modal">
+
+        <div class="crop-dialog">
+
+            <h2>四隅補正</h2>
+
+            <p class="crop-description">
+                4つの丸を紙の四隅に合わせてください。
+            </p>
+
+            <div class="crop-canvas-wrapper">
+
+                <canvas id="cropCanvas"></canvas>
+
+            </div>
+
+            <p id="cropStatus" class="crop-status"></p>
+
+            <div class="crop-actions">
+
+                <button id="autoDetectCropButton"
+                        class="crop-auto-button">
+                    四隅を自動検出
+                </button>
+
+                <button id="resetCropButton"
+                        class="crop-secondary-button">
+                    位置をリセット
+                </button>
+
+                <button id="cancelCropButton"
+                        class="crop-secondary-button">
+                    キャンセル
+                </button>
+
+                <button id="applyCropButton"
+                        class="crop-apply-button">
+                    補正を適用
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+
+    <script>
+        window.openCvReady = false;
+        window.openCvLoadFailed = false;
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/fast-opencv-wasm@4.10.0-14/opencv.js"
+            onerror="window.openCvLoadFailed = true;"></script>
+
+    <script>
+        async function initializeOpenCv() {
+
+            try {
+
+                const response = await fetch(
+                    "https://cdn.jsdelivr.net/npm/fast-opencv-wasm@4.10.0-14/opencv.wasm"
+                );
+
+                if (!response.ok) {
+
+                    throw new Error(
+                        "opencv.wasm を取得できませんでした。"
+                    );
+                }
+
+                const wasmBinary =
+                    await response.arrayBuffer();
+
+
+                // このopencv.jsでは、読み込み直後のcvは
+                // OpenCVを作成するための関数
+                const cvFactory =
+                    window.cv;
+
+
+                if (
+                    typeof cvFactory !== "function"
+                ) {
+
+                    throw new Error(
+                        "OpenCVの初期化関数が見つかりません。"
+                    );
+                }
+
+
+                const result =
+                    cvFactory({
+                        wasmBinary: wasmBinary
+                    });
+
+
+                // 環境によってPromiseの場合にも対応
+                if (
+                    result &&
+                    typeof result.then === "function"
+                ) {
+
+                    window.cv =
+                        await result;
+
+                } else {
+
+                    window.cv =
+                        result;
+                }
+
+
+                window.openCvReady =
+                    true;
+
+
+                console.log(
+                    "OpenCV.js is ready."
+                );
+
+            }
+            catch (error) {
+
+                window.openCvLoadFailed =
+                    true;
+
+
+                console.error(
+                    "OpenCV初期化エラー:",
+                    error
+                );
+            }
+        }
+
+
+        initializeOpenCv();
+    </script>
+
+    <script src="app.js"></script>
+
+</body>
+</html>
