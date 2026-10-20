@@ -5,6 +5,9 @@
 const imageInput =
     document.getElementById("imageInput");
 
+const cameraInput =
+    document.getElementById("cameraInput");
+
 const previewContainer =
     document.getElementById("previewContainer");
 
@@ -108,36 +111,92 @@ let draggingPointIndex = -1;
 
 
 // =============================================
-// 写真選択
+// Fileをページ情報へ変換
+// =============================================
+
+function createPageData(
+    file
+) {
+
+    return {
+
+        file: file,
+
+        rotation: 0,
+
+        correctedBlob: null,
+
+        filterMode: "document",
+
+        autoStatus: "pending"
+    };
+}
+
+
+// =============================================
+// 写真ライブラリから選択
+//
+// 選択した写真でページ一覧を作り直す
 // =============================================
 
 imageInput.addEventListener(
     "change",
     function (event) {
-
         const files =
             Array.from(event.target.files);
-
-        pages = files.map(
-            function (file) {
-                return {
-                    file: file,
-                    rotation: 0,
-                    correctedBlob: null,
-                    filterMode: "document",
-                    autoStatus: "pending"
-                };
-            }
-        );
-
+        if (
+            files.length === 0
+        ) {
+            return;
+        }
+        pages =
+            files.map(
+                function (file) {
+                    return createPageData(file);
+                }
+            );
         invalidateGeneratedPdf();
         showPreviews();
 
-        // 同じ画像を再選択可能にする
+        // 同じ画像をもう一度選択可能にする
         imageInput.value = "";
     }
 );
 
+// =============================================
+// カメラで撮影
+//
+// 撮影した画像は既存ページの末尾へ追加
+// =============================================
+
+cameraInput.addEventListener(
+    "change",
+    function (event) {
+        const files =
+            Array.from(event.target.files);
+
+        if (files.length === 0)
+        {
+            return;
+        }
+        files.forEach(
+            function (file) {
+                pages.push(
+                    createPageData(file)
+                );
+            }
+        );
+        // PDFは作り直す必要がある
+        invalidateGeneratedPdf();
+
+        // プレビュー更新
+        showPreviews();
+
+        // 同じカメラ入力を
+        // もう一度使用できるようにする
+        cameraInput.value = "";
+    }
+);
 
 // =============================================
 // 用紙サイズ変更

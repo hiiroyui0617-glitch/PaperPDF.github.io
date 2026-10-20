@@ -86,6 +86,38 @@ main {
         display: none;
     }
 
+/* =========================
+   カメラ撮影ボタン
+   ========================= */
+
+.camera-button {
+    display: inline-block;
+    margin-left: 10px;
+    padding: 12px 20px;
+    background-color: #34c759;
+    color: white;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+
+    .camera-button input {
+        display: none;
+    }
+
+@media (max-width: 600px) {
+
+    .file-button,
+    .camera-button {
+        display: block;
+        width: 100%;
+        margin-left: 0;
+        margin-bottom: 10px;
+        text-align: center;
+        min-height: 48px;
+    }
+}
 
 /* =========================
    用紙サイズ
