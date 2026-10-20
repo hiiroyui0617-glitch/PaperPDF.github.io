@@ -8,6 +8,12 @@ const imageInput =
 const previewContainer =
     document.getElementById("previewContainer");
 
+const batchCorrectButton =
+    document.getElementById("batchCorrectButton");
+
+const batchProgress =
+    document.getElementById("batchProgress");
+
 const imageCount =
     document.getElementById("imageCount");
 
@@ -112,24 +118,20 @@ imageInput.addEventListener(
         const files =
             Array.from(event.target.files);
 
-
         pages = files.map(
             function (file) {
-
                 return {
                     file: file,
                     rotation: 0,
                     correctedBlob: null,
-                    filterMode: "document"
+                    filterMode: "document",
+                    autoStatus: "pending"
                 };
             }
         );
 
-
         invalidateGeneratedPdf();
-
         showPreviews();
-
 
         // 同じ画像を再選択可能にする
         imageInput.value = "";
@@ -221,6 +223,9 @@ function showPreviews() {
         createPdfButton.disabled =
             true;
 
+        batchCorrectButton.disabled =
+            true;
+
         return;
     }
 
@@ -233,6 +238,8 @@ function showPreviews() {
     createPdfButton.disabled =
         false;
 
+    batchCorrectButton.disabled =
+        false;
 
     pages.forEach(
         function (pageData, index) {
@@ -304,6 +311,74 @@ function showPreviews() {
             pageNumber.textContent =
                 index + 1;
 
+            // =========================
+            // 処理状態
+            // =========================
+
+            const statusBadge =
+                document.createElement(
+                    "div"
+                );
+
+
+            statusBadge.className =
+                "page-status";
+
+
+            if (
+                pageData.autoStatus ===
+                "success"
+            ) {
+
+                statusBadge.classList.add(
+                    "page-status-success"
+                );
+
+                statusBadge.textContent =
+                    "✓ 自動補正";
+
+            }
+
+            else if (
+                pageData.autoStatus ===
+                "failed"
+            ) {
+
+                statusBadge.classList.add(
+                    "page-status-failed"
+                );
+
+                statusBadge.textContent =
+                    "⚠ 要確認";
+
+            }
+
+            else if (
+                pageData.autoStatus ===
+                "manual"
+            ) {
+
+                statusBadge.classList.add(
+                    "page-status-manual"
+                );
+
+                statusBadge.textContent =
+                    "✓ 手動補正";
+
+            }
+
+            else if (
+                pageData.autoStatus ===
+                "processing"
+            ) {
+
+                statusBadge.classList.add(
+                    "page-status-processing"
+                );
+
+                statusBadge.textContent =
+                    "処理中...";
+            }
 
             // =========================
             // 操作領域
@@ -556,6 +631,16 @@ function showPreviews() {
             previewItem.appendChild(
                 pageNumber
             );
+
+            if (
+                pageData.autoStatus !==
+                "pending"
+            ) {
+
+                previewItem.appendChild(
+                    statusBadge
+                );
+            }
 
             previewItem.appendChild(
                 controls
@@ -1111,6 +1196,682 @@ async function applyFilterToCanvas(
         }
     }
 }
+
+// =============================================
+// 4点から
+// 台形補正＋フィルター＋JPEG生成
+// =============================================
+
+async function createCorrectedDocument(
+    sourceCanvas,
+    sourcePoints,
+    filterMode
+) {
+
+    const cv =
+        await getOpenCv();
+
+
+    let src = null;
+    let dst = null;
+
+    let srcTri = null;
+    let dstTri = null;
+
+    let matrix = null;
+
+
+    try {
+
+        // =====================================
+        // 各辺の長さ
+        // =====================================
+
+        const top =
+            pointDistance(
+                sourcePoints[0],
+                sourcePoints[1]
+            );
+
+
+        const right =
+            pointDistance(
+                sourcePoints[1],
+                sourcePoints[2]
+            );
+
+
+        const bottom =
+            pointDistance(
+                sourcePoints[2],
+                sourcePoints[3]
+            );
+
+
+        const left =
+            pointDistance(
+                sourcePoints[3],
+                sourcePoints[0]
+            );
+
+
+        const horizontal =
+            Math.max(
+                top,
+                bottom
+            );
+
+
+        const vertical =
+            Math.max(
+                left,
+                right
+            );
+
+
+        // A4/B5ともほぼ √2
+        const paperRatio =
+            Math.SQRT2;
+
+
+        let outputWidth;
+        let outputHeight;
+
+
+        // =====================================
+        // 縦向き
+        // =====================================
+
+        if (
+            vertical >=
+            horizontal
+        ) {
+
+            outputWidth =
+                Math.max(
+                    horizontal,
+                    vertical /
+                    paperRatio
+                );
+
+
+            outputHeight =
+                outputWidth *
+                paperRatio;
+
+        } else {
+
+            // =================================
+            // 横向き
+            // =================================
+
+            outputHeight =
+                Math.max(
+                    vertical,
+                    horizontal /
+                    paperRatio
+                );
+
+
+            outputWidth =
+                outputHeight *
+                paperRatio;
+        }
+
+
+        outputWidth =
+            Math.round(
+                outputWidth
+            );
+
+
+        outputHeight =
+            Math.round(
+                outputHeight
+            );
+
+
+        // =====================================
+        // iPhoneのメモリ消費対策
+        // =====================================
+
+        const maxLongEdge =
+            3508;
+
+
+        const longEdge =
+            Math.max(
+                outputWidth,
+                outputHeight
+            );
+
+
+        if (
+            longEdge >
+            maxLongEdge
+        ) {
+
+            const resizeScale =
+                maxLongEdge /
+                longEdge;
+
+
+            outputWidth =
+                Math.round(
+                    outputWidth *
+                    resizeScale
+                );
+
+
+            outputHeight =
+                Math.round(
+                    outputHeight *
+                    resizeScale
+                );
+        }
+
+
+        // =====================================
+        // Perspective Transform
+        // =====================================
+
+        src =
+            cv.imread(
+                sourceCanvas
+            );
+
+
+        dst =
+            new cv.Mat();
+
+
+        srcTri =
+            cv.matFromArray(
+                4,
+                1,
+                cv.CV_32FC2,
+                [
+                    sourcePoints[0].x,
+                    sourcePoints[0].y,
+
+                    sourcePoints[1].x,
+                    sourcePoints[1].y,
+
+                    sourcePoints[2].x,
+                    sourcePoints[2].y,
+
+                    sourcePoints[3].x,
+                    sourcePoints[3].y
+                ]
+            );
+
+
+        dstTri =
+            cv.matFromArray(
+                4,
+                1,
+                cv.CV_32FC2,
+                [
+                    0,
+                    0,
+
+                    outputWidth - 1,
+                    0,
+
+                    outputWidth - 1,
+                    outputHeight - 1,
+
+                    0,
+                    outputHeight - 1
+                ]
+            );
+
+
+        matrix =
+            cv.getPerspectiveTransform(
+                srcTri,
+                dstTri
+            );
+
+
+        cv.warpPerspective(
+            src,
+            dst,
+            matrix,
+            new cv.Size(
+                outputWidth,
+                outputHeight
+            ),
+            cv.INTER_LINEAR,
+            cv.BORDER_CONSTANT,
+            new cv.Scalar(
+                255,
+                255,
+                255,
+                255
+            )
+        );
+
+
+        // =====================================
+        // Canvasへ出力
+        // =====================================
+
+        const outputCanvas =
+            document.createElement(
+                "canvas"
+            );
+
+
+        outputCanvas.width =
+            outputWidth;
+
+        outputCanvas.height =
+            outputHeight;
+
+
+        cv.imshow(
+            outputCanvas,
+            dst
+        );
+
+
+        // =====================================
+        // ドキュメントフィルター
+        // =====================================
+
+        const filteredCanvas =
+            await applyFilterToCanvas(
+                outputCanvas,
+                filterMode
+            );
+
+
+        // =====================================
+        // JPEG
+        // =====================================
+
+        return await canvasToJpegBlob(
+            filteredCanvas,
+            0.95
+        );
+
+    } finally {
+
+        if (src !== null) {
+            src.delete();
+        }
+
+        if (dst !== null) {
+            dst.delete();
+        }
+
+        if (srcTri !== null) {
+            srcTri.delete();
+        }
+
+        if (dstTri !== null) {
+            dstTri.delete();
+        }
+
+        if (matrix !== null) {
+            matrix.delete();
+        }
+    }
+}
+
+// =============================================
+// 1ページ自動補正
+// =============================================
+
+async function autoCorrectPage(
+    index
+) {
+
+    const pageData =
+        pages[index];
+
+
+    // =========================================
+    // 既に補正済みならスキップ
+    // =========================================
+
+    if (
+        pageData.correctedBlob !==
+        null
+    ) {
+
+        return "skipped";
+    }
+
+
+    pageData.autoStatus =
+        "processing";
+
+
+    showPreviews();
+
+
+    // =========================================
+    // 元画像をCanvasへ
+    // =========================================
+
+    cropSourceCanvas =
+        await pageToCanvas(
+            pageData
+        );
+
+
+    // =========================================
+    // 自動検出用Canvasサイズ
+    //
+    // openCropEditor() と同じ考え方
+    // =========================================
+
+    const maxWidth =
+        900;
+
+    const maxHeight =
+        700;
+
+
+    const displayScale =
+        Math.min(
+            1,
+
+            maxWidth /
+            cropSourceCanvas.width,
+
+            maxHeight /
+            cropSourceCanvas.height
+        );
+
+
+    cropCanvas.width =
+        Math.max(
+            1,
+            Math.round(
+                cropSourceCanvas.width *
+                displayScale
+            )
+        );
+
+
+    cropCanvas.height =
+        Math.max(
+            1,
+            Math.round(
+                cropSourceCanvas.height *
+                displayScale
+            )
+        );
+
+
+    resetCropPoints();
+
+
+    // =========================================
+    // 四隅自動検出
+    // =========================================
+
+    const detected =
+        await autoDetectPaperCorners();
+
+
+    if (!detected) {
+
+        pageData.autoStatus =
+            "failed";
+
+
+        return "failed";
+    }
+
+
+    // =========================================
+    // cropCanvas座標
+    // ↓
+    // 元画像座標
+    // =========================================
+
+    const scaleX =
+        cropSourceCanvas.width /
+        cropCanvas.width;
+
+
+    const scaleY =
+        cropSourceCanvas.height /
+        cropCanvas.height;
+
+
+    const sourcePoints =
+        cropPoints.map(
+            function (point) {
+
+                return {
+
+                    x:
+                        point.x *
+                        scaleX,
+
+                    y:
+                        point.y *
+                        scaleY
+                };
+            }
+        );
+
+
+    // =========================================
+    // 台形補正＋フィルター
+    // =========================================
+
+    const correctedBlob =
+        await createCorrectedDocument(
+            cropSourceCanvas,
+            sourcePoints,
+            pageData.filterMode ||
+            "document"
+        );
+
+
+    pageData.correctedBlob =
+        correctedBlob;
+
+
+    // 回転は補正画像へ反映済み
+    pageData.rotation =
+        0;
+
+
+    pageData.autoStatus =
+        "success";
+
+
+    return "success";
+}
+
+// =============================================
+// 一括自動補正
+// =============================================
+
+batchCorrectButton.addEventListener(
+    "click",
+    async function () {
+
+        if (
+            pages.length === 0
+        ) {
+
+            return;
+        }
+
+
+        batchCorrectButton.disabled =
+            true;
+
+        createPdfButton.disabled =
+            true;
+
+        imageInput.disabled =
+            true;
+
+
+        invalidateGeneratedPdf();
+
+
+        let successCount =
+            0;
+
+        let failedCount =
+            0;
+
+        let skippedCount =
+            0;
+
+
+        try {
+
+            // =================================
+            // 重要：
+            // Promise.allにはしない
+            //
+            // iPhoneのメモリ対策として
+            // 1枚ずつ処理する
+            // =================================
+
+            for (
+                let i = 0;
+                i < pages.length;
+                i++
+            ) {
+
+                batchProgress.textContent =
+                    (
+                        i + 1
+                    ) +
+                    " / " +
+                    pages.length +
+                    " ページを処理しています...";
+
+
+                try {
+
+                    const result =
+                        await autoCorrectPage(
+                            i
+                        );
+
+
+                    if (
+                        result ===
+                        "success"
+                    ) {
+
+                        successCount++;
+
+                    } else if (
+                        result ===
+                        "failed"
+                    ) {
+
+                        failedCount++;
+
+                    } else {
+
+                        skippedCount++;
+                    }
+
+                } catch (error) {
+
+                    console.error(
+                        "ページ " +
+                        (
+                            i + 1
+                        ) +
+                        " の自動補正に失敗:",
+                        error
+                    );
+
+
+                    pages[
+                        i
+                    ].autoStatus =
+                        "failed";
+
+
+                    failedCount++;
+                }
+
+
+                showPreviews();
+
+
+                // =================================
+                // UI描画とメモリ開放のため
+                // 少しだけ待つ
+                // =================================
+
+                await new Promise(
+                    function (resolve) {
+
+                        setTimeout(
+                            resolve,
+                            50
+                        );
+                    }
+                );
+            }
+
+
+            batchProgress.textContent =
+                "完了："
+                +
+                successCount
+                +
+                "ページ自動補正 / "
+                +
+                failedCount
+                +
+                "ページ要確認"
+                +
+                (
+                    skippedCount > 0
+                        ?
+                        " / " +
+                        skippedCount +
+                        "ページ補正済み"
+                        :
+                        ""
+                );
+
+
+        } finally {
+
+            // 一括処理で使った一時状態を解除
+            cropSourceCanvas =
+                null;
+
+            cropPoints =
+                [];
+
+
+            batchCorrectButton.disabled =
+                false;
+
+            createPdfButton.disabled =
+                (
+                    pages.length === 0
+                );
+
+            imageInput.disabled =
+                false;
+
+
+            showPreviews();
+        }
+    }
+);
 
 // =============================================
 // PDF用JPEG
@@ -5361,6 +6122,10 @@ applyCropButton.addEventListener(
             ].correctedBlob =
                 correctedBlob;
 
+            pages[
+                cropEditingIndex
+            ].autoStatus =
+                "manual";
 
             pages[
                 cropEditingIndex

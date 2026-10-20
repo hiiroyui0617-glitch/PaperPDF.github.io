@@ -552,3 +552,69 @@ body.modal-open {
         font-size: 15px;
         background-color: white;
     }
+
+/* =========================
+   一括自動補正
+   ========================= */
+
+.batch-correct-button {
+    width: 100%;
+    padding: 15px;
+    border: none;
+    border-radius: 10px;
+    background-color: #007aff;
+    color: white;
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+
+    .batch-correct-button:disabled {
+        background-color: #aaa;
+        cursor: not-allowed;
+    }
+
+
+.batch-progress {
+    min-height: 24px;
+    margin-bottom: 0;
+    color: #555;
+    font-weight: bold;
+}
+
+
+/* =========================
+   ページ処理状態
+   ========================= */
+
+.page-status {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    padding: 4px 7px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: bold;
+    color: white;
+}
+
+
+.page-status-success {
+    background-color: #34c759;
+}
+
+
+.page-status-failed {
+    background-color: #ff9500;
+}
+
+
+.page-status-manual {
+    background-color: #5856d6;
+}
+
+
+.page-status-processing {
+    background-color: #007aff;
+}
