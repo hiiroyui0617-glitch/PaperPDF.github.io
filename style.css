@@ -106,19 +106,6 @@ main {
         display: none;
     }
 
-@media (max-width: 600px) {
-
-    .file-button,
-    .camera-button {
-        display: block;
-        width: 100%;
-        margin-left: 0;
-        margin-bottom: 10px;
-        text-align: center;
-        min-height: 48px;
-    }
-}
-
 /* =========================
    用紙サイズ
    ========================= */
@@ -348,6 +335,19 @@ main {
     .preview-control-button {
         font-size: 13px;
         padding: 7px 3px;
+    }
+}
+
+@media (max-width: 600px) {
+
+    .file-button,
+    .camera-button {
+        display: block;
+        width: 100%;
+        margin-left: 0;
+        margin-bottom: 10px;
+        text-align: center;
+        min-height: 48px;
     }
 }
 
